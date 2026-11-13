@@ -1,0 +1,19 @@
+# Corpus RAG, datasets, index et resultats generes
+/data/
+/datasets_public/
+
+# Environnements et caches Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Configuration locale et secrets
+.env
+.env.*
+!.env.example
+
+# Fichiers macOS
+.DS_Store
