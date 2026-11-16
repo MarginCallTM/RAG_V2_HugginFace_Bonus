@@ -530,6 +530,45 @@ Pour chaque bonus : expliquer le besoin, définir le contrat, implémenter par i
 
 ## 7. Suivi de progression
 
+### Point de reprise du 16 novembre 2026 — état courant
+
+Ce point remplace les indications de prochaine mission et les états historiques
+ci-dessous lorsqu'ils les contredisent. Les anciennes mesures restent historiques.
+
+- Code inspecté : `ScoredChunk`, tokenisation, `Retriever` avec
+  `rank_bm25.BM25Okapi`, `search`, `search_dataset` et `evaluate` implémentés.
+  Les tests datasets et évaluation sont présents, ainsi que leurs tests CLI.
+- L'élève rapporte `make install` puis une indexation à `max_chunk_size=2000`.
+  La durée de cette indexation n'a pas été communiquée.
+- Sorties de la moulinette transmises par l'élève : données valides,
+  99 questions code et 100 questions docs, toutes avec des résultats.
+
+| Dataset public | Recall@1 | Recall@3 | Recall@5 | Recall@10 | Seuil Recall@5 |
+|---|---:|---:|---:|---:|---:|
+| Code | 43,4 % | 59,6 % | 66,7 % | 75,8 % | 50 % : atteint |
+| Docs | 59,0 % | 76,0 % | 81,0 % | 85,0 % | 80 % : atteint |
+
+- Notre `evaluate --k 5` concorde avec la moulinette sur ces deux datasets :
+  code 66,67 %, docs 81,00 %. Aucune question manquante ; respectivement
+  33 et 19 questions à recall nul. Cela ne prouve pas l'identité des deux
+  évaluateurs sur tous les cas limites, notamment IoU exactement égale à 0,05.
+- Qualité du retrieval validée sur ces datasets publics pour cette configuration.
+  Temps d'indexation ≤ 300 s et retrieval ≤ 90 s pour 200 questions encore
+  à documenter ; les deux datasets présents totalisent 199 questions.
+- Résultats actuels de pytest et de `make lint` non communiqués : ne pas
+  reprendre les anciens nombres de tests comme une validation de cette copie.
+- Étapes 8 à 11 implémentées ; étape 12 : baseline mesurée, sans tuning requis
+  avant la génération. Compréhension à poursuivre au fil des expériences.
+- **Mission actuelle : étape 13**, inspecter un contexte sourcé et un prompt
+  sur une question LoRA. Première expérience dans `notes/explore_prompt.py`.
+  Cette expérience compte des caractères, pas des tokens Qwen ; elle ne valide
+  pas encore le budget du modèle. Construire ensuite `src/prompting.py` avec
+  un contrat explicite et une sélection des sources respectant ce budget.
+- Qwen, `answer`, `answer_dataset`, README anglais et robustesse finale restent
+  à réaliser. Aucun bonus commencé. Conserver la baseline BM25 actuelle.
+
+### Historique jusqu'au 12 novembre 2026
+
 Mise à jour du 12 novembre 2026 : vérification par le tuteur, **92 tests réussis** (16 modèles, 7 ingestion, 48 chunking, 6 indexer, 6 CLI, 9 tokenizer) et `make lint` réussi (33 fichiers mypy). `ChunkIndex` est écrit et testé : configuration bornée, cohérence des tailles et aller-retour JSON. `build_index` orchestre découverte, lecture et chunking, conserve les sources relatives et refuse un corpus sans chunks. Trois tests d'indexer passent. save_index et load_index sont écrits, avec aller-retour sur disque, validation et tests fichier absent/données incohérentes. Aucun benchmark retrieval ni génération exécuté.
 
 Chunking texte/Markdown : paragraphes, sections hors blocs clôturés, regroupement et repli fixe implémentés et testés. Exploration de `lora.md` réalisée par l'élève : 14 chunks à 2000 caractères et 48 à 500, reconstruction du texte et offsets vérifiés par le script. Le découpage ne préserve pas nécessairement tout bloc de code dépassant la limite et n'est pas un parseur Markdown complet.
