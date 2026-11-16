@@ -44,7 +44,7 @@ def main() -> None:
 
     inputs = tokenizer.apply_chat_template(
         messages,
-        tokenizer=True,
+        tokenize=True,
         add_generation_prompt=True,
         enable_thinking=False,
         return_dict=True,
