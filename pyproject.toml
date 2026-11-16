@@ -10,7 +10,7 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "transformers>=4.51,<5",
     "jinja2>=3.1.6",
-    "torch>=2.15.0",
+    "torch>=2.6,<3",
 ]
 
 [dependency-groups]
@@ -24,11 +24,13 @@ dev = [
 exclude = '^(data|\.venv)/'
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu130" }

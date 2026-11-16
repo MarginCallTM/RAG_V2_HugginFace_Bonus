@@ -9,8 +9,17 @@ from src.models import (
     MinimalSource,
     RagDataset,
     StudentSearchResults,
+    Chunk,
+    MinimalAnswer,
+    StudentSearchResultsAndAnswer,
 )
 from src.retriever import Retriever
+from src.ingest import read_text
+from typing import TYPE_CHECKING
+from src.prompting import build_budgeted_prompt
+
+if TYPE_CHECKING:
+    from src.generator import Generator
 
 
 def load_dataset(path: Path) -> RagDataset:
@@ -89,3 +98,142 @@ def save_search_results(
     temporary.replace(target)
 
     return target
+
+
+def load_source_chunk(
+    source: MinimalSource,
+    project_root: Path,
+) -> Chunk:
+    """Read a saved source span using the corpus text convention.
+
+    Args:
+        source: File path and character positions from retrieval.
+        project_root: Root used to resolve relative source paths.
+
+    Returns:
+        The source passage with its original provenance.
+
+    Raises:
+        ValueError: If the path or character range is invalid.
+        OSError: if the source file cannot be read.
+    """
+    root = project_root.resolve()
+    relative_path = Path(source.file_path)
+
+    if relative_path.is_absolute():
+        raise ValueError("Source path must be relative to project_root")
+
+    path = (root / relative_path).resolve()
+
+    if not path.is_relative_to(root):
+        raise ValueError("Source path is outside project_root")
+
+    first = source.first_character_index
+    last = source.last_character_index
+
+    if last - first > 2000:
+        raise ValueError("Source exceeds 2000 characters")
+
+    text = read_text(path)
+
+    if last > len(text):
+        raise ValueError(
+            f"Source range exceeds file length: {source.file_path}"
+        )
+
+    return Chunk(
+        file_path=source.file_path,
+        first_character_index=first,
+        last_character_index=last,
+        text=text[first:last],
+    )
+
+
+def answer_questions(
+    results: StudentSearchResults,
+    generator: "Generator",
+    project_root: Path,
+) -> StudentSearchResultsAndAnswer:
+    """Generate answers using one already loaded model.
+
+    Args:
+        results: Saved questions and ranked source locations.
+        generator: Model instance reused across all questions.
+        project_root: Root used to locate source files.
+
+    Returns:
+        Answers preserving question identifiers and included sources.
+
+    Raises:
+        ValueError: If question identifiers or source counts are invalid.
+        OSError: If a referenced source file cannot be read
+    """
+    if results.k < 0:
+        raise ValueError("k must be non-negative")
+
+    question_ids = [
+        result.question_id
+        for result in results.search_results
+    ]
+
+    if len(set(question_ids)) != len(question_ids):
+        raise ValueError("Duplicate question_id in search results")
+
+    for result in results.search_results:
+        if not result.question.strip():
+            raise ValueError("Question must not be empty")
+
+        if len(result.retrieved_sources) > results.k:
+            raise ValueError("A question has more than k sources")
+
+    answers: list[MinimalAnswer] = []
+
+    for result in tqdm(
+        results.search_results,
+        desc="Answering",
+        unit="question",
+    ):
+        chunks = [
+            load_source_chunk(source, project_root)
+            for source in result.retrieved_sources
+        ]
+
+        sources: list[MinimalSource] = []
+
+        if chunks:
+            prompt = build_budgeted_prompt(
+                result.question,
+                chunks,
+                generator.tokenizer,
+                context_budget=generator.context_budget,
+                max_new_tokens=generator.max_new_tokens,
+            )
+
+            sources = prompt.sources
+
+            if sources:
+                answer_text = generator.generate(prompt)
+            else:
+                answer_text = (
+                    "Insufficient evidence: no retrieved passage "
+                    "fits the input token budget."
+                )
+        else:
+            answer_text = (
+                "Insufficient evidence: no relevant passage "
+                "was retrieved."
+            )
+
+        answers.append(
+            MinimalAnswer(
+                question_id=result.question_id,
+                question=result.question,
+                retrieved_sources=sources,
+                answer=answer_text,
+            )
+        )
+
+    return StudentSearchResultsAndAnswer(
+        search_results=answers,
+        k=results.k,
+    )

@@ -1,5 +1,7 @@
 """Generate answers from sourced prompts unsing Qwen on CPU"""
 
+from typing import cast
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -14,6 +16,7 @@ class Generator:
             model_name: str = "Qwen/Qwen3-0.6B",
             context_budget: int = 4096,
             max_new_tokens: int = 256,
+            device: str = "auto",
     ) -> None:
         """Load the tokenizer and model with validated token limits."""
         if context_budget <= 0:
@@ -24,13 +27,34 @@ class Generator:
                 "max_new_tokens must be positive and below context_budget"
             )
 
+            # Select the exection device before loading the model.
+        if device not in ("auto", "cpu", "cuda"):
+            raise ValueError("dvice must be auto, cpu or cuda")
+
+        cuda_available = torch.cuda.is_available()
+
+        if device == "auto":
+            device = "cuda" if cuda_available else "cpu"
+
+        if device == "cuda" and not cuda_available:
+            raise ValueError("CUDA requested but unavailble")
+
+        self.device = torch.device(device)
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        dtype = (
+            torch.float16
+            if self.device.type == "cuda"
+            else torch.float32
+        )
 
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            dtype=torch.float32,
+            dtype=dtype,
         )
-        self.model.cpu()
+        torch_model = cast(torch.nn.Module, self.model)
+        torch_model.to(device=self.device)
         self.model.eval()
 
         model_limit = self.model.config.max_position_embeddings
@@ -58,6 +82,8 @@ class Generator:
             return_dict=True,
             return_tensors="pt",
         )
+
+        inputs = inputs.to(self.device)
 
         input_tokens = inputs["input_ids"].shape[-1]
 

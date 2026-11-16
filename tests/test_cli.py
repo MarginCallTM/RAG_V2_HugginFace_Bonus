@@ -603,3 +603,70 @@ def test_evaluate_cli_reports_input_errors(
     assert result.returncode == 1
     assert expected_message in result.stderr
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_message"),
+    [
+        (
+            ["", "--k", "3"],
+            "query must not be empty",
+        ),
+        (
+            ["adapter", "--k", "-1"],
+            "k must be a non-negative integer",
+        ),
+        (
+            ["adapter", "--k", "abc"],
+            "k must be a non-negative integer",
+        ),
+        (
+            ["adapter", "--context_budget", "0"],
+            "context_budget must be a positive integer",
+        ),
+        (
+            ["adapter", "--max_new_tokens", "0"],
+            "max_new_tokens must be positive",
+        ),
+        (
+            [
+                "adapter",
+                "--context_budget",
+                "128",
+                "--max_new_tokens",
+                "128",
+            ],
+            "max_new_tokens must be positive",
+        ),
+    ],
+)
+def test_answer_cli_rejects_invalid_arguments(
+    tmp_path: Path,
+    arguments: list[str],
+    expected_message: str,
+) -> None:
+    """Reject invalid arguments through Fire without a traceback."""
+    target = tmp_path / "answer.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src",
+            "answer",
+            *arguments,
+            "--processed_dir",
+            str(tmp_path / "missing"),
+            "--output_path",
+            str(target),
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 1
+    assert expected_message in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not target.exists()

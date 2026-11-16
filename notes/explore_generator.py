@@ -24,6 +24,12 @@ def main() -> None:
     print("Loading Qwen...", flush=True)
     generator = Generator()
 
+    print("Device:", generator.device)
+    print("Model dtype:", generator.model.dtype)
+    print("Selected device:", generator.device)
+    print("Model device:", generator.model.device)
+    print("Model dtype:", generator.model.dtype)
+
     prompt = build_budgeted_prompt(
         question,
         chunks,
