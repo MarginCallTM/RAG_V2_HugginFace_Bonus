@@ -10,6 +10,8 @@ from src.models import (
     MinimalSource,
     StudentSearchResults,
     AnsweredDataset,
+    MinimalAnswer,
+    StudentSearchResultsAndAnswer,
 )
 from src.datasets import (
     load_dataset,
@@ -18,6 +20,7 @@ from src.datasets import (
 )
 from src.retriever import Retriever
 from src.evaluation import evaluate_recall
+from src.prompting import build_budgeted_prompt
 
 
 class CliError(Exception):
@@ -241,3 +244,118 @@ class RagCli:
         print(f"Questions missing from results: {missing_count}")
         print(f"Questions with zero recall:{zero_count}")
         print(f"Recall@{k}: {mean_recall:.2%}")
+
+    def answer(
+        self,
+        query: str,
+        k: int = 5,
+        processed_dir: str = "data/processed",
+        output_path: str = (
+            "data/output/search_results_and_answer/single_query.json"
+        ),
+        model_name: str = "Qwen/Qwen3-0.6B",
+        context_budget: int = 4096,
+        max_new_tokens: int = 256,
+    ) -> None:
+        """Generate a grounded answer and save its included sources.
+
+        Args:
+            query: Question to answer.
+            k: Maximum number of retrieved passages.
+            processed_dir: Directory containing the saved chunk index.
+            output_path: Destination JSON file.
+            model_name: Hugging Face model identifier or local model path
+            context_budget: Total input and output token budget
+            max_new_tokens: Maximum number of generated tokens.
+        """
+        if type(k) is not int or k < 0:
+            raise CliError("k must be a non-negative integer")
+
+        if not str(query).strip():
+            raise CliError("query must not be empty")
+
+        if type(context_budget) is not int or context_budget <= 0:
+            raise CliError("context_budget must be a positive integer")
+
+        if (
+            type(max_new_tokens) is not int
+            or not 0 < max_new_tokens < context_budget
+        ):
+            raise CliError(
+                "max_new_tokens must be positive and below context_budget"
+            )
+
+        started = perf_counter()
+
+        try:
+            from src.generator import Generator
+
+            question = UnansweredQuestion(question=str(query))
+
+            index = load_index(Path(str(processed_dir)))
+            retriever = Retriever(index)
+            hits = retriever.search(question.question, k=k)
+            chunks = [hit.chunk for hit in hits]
+
+            if chunks:
+                print("Loading Qwen...", flush=True)
+                generator = Generator(
+                    model_name=str(model_name),
+                    context_budget=context_budget,
+                    max_new_tokens=max_new_tokens,
+                )
+
+                prompt = build_budgeted_prompt(
+                    question.question,
+                    chunks,
+                    generator.tokenizer,
+                    context_budget=generator.context_budget,
+                    max_new_tokens=generator.max_new_tokens,
+                )
+
+                sources = prompt.sources
+
+                if sources:
+                    print("Generating answer...", flush=True)
+                    answer_text = generator.generate(prompt)
+                else:
+                    answer_text = (
+                        "Insufficient evidence: no retrieved passage "
+                        "fits the input token budget."
+                    )
+            else:
+                sources = []
+                answer_text = (
+                    "Insufficient evidence: no relevant passage "
+                    "was retrieved"
+
+                )
+
+            output = StudentSearchResultsAndAnswer(
+                search_results=[
+                    MinimalAnswer(
+                        question_id=question.question_id,
+                        question=question.question,
+                        retrieved_sources=sources,
+                        answer=answer_text,
+                    )
+                ],
+                k=k,
+            )
+            target = Path(str(output_path))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".tmp")
+
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write(output.model_dump_json(indent=2))
+
+            temporary.replace(target)
+
+        except (OSError, ValueError, RuntimeError, ImportError) as error:
+            raise CliError(f"Answer generation failed: {error}") from error
+
+        print("\nANSWER")
+        print(answer_text)
+        print(f"\nIncluded sources: {len(sources)}")
+        print(f"Saved answer to {target}")
+        print(f"Completed in {perf_counter() - started:.2f} seconds")

@@ -555,17 +555,42 @@ ci-dessous lorsqu'ils les contredisent. Les anciennes mesures restent historique
 - Qualité du retrieval validée sur ces datasets publics pour cette configuration.
   Temps d'indexation ≤ 300 s et retrieval ≤ 90 s pour 200 questions encore
   à documenter ; les deux datasets présents totalisent 199 questions.
-- Résultats actuels de pytest et de `make lint` non communiqués : ne pas
-  reprendre les anciens nombres de tests comme une validation de cette copie.
+- L'élève confirme les 16 tests de `tests/test_prompting.py` réussis et
+  `make lint` réussi après intégration de `answer`. La suite complète n'a pas
+  été réexécutée lors de ce point ; ne pas extrapoler un nombre total de tests.
 - Étapes 8 à 11 implémentées ; étape 12 : baseline mesurée, sans tuning requis
   avant la génération. Compréhension à poursuivre au fil des expériences.
-- **Mission actuelle : étape 13**, inspecter un contexte sourcé et un prompt
-  sur une question LoRA. Première expérience dans `notes/explore_prompt.py`.
-  Cette expérience compte des caractères, pas des tokens Qwen ; elle ne valide
-  pas encore le budget du modèle. Construire ensuite `src/prompting.py` avec
-  un contrat explicite et une sélection des sources respectant ce budget.
-- Qwen, `answer`, `answer_dataset`, README anglais et robustesse finale restent
-  à réaliser. Aucun bonus commencé. Conserver la baseline BM25 actuelle.
+- Étape 13 : `src/prompting.py` implémenté avec messages et sources Pydantic,
+  comptage via le chat template Qwen et sélection d'un préfixe de chunks entiers
+  selon le budget. Refus si question et instructions seules dépassent le budget.
+  Tokenizer simulé dans les tests ; vrai tokenizer utilisé en exploration.
+- Étape 14 : `src/generator.py` charge Qwen/Qwen3-0.6B sur CPU en float32,
+  réutilise le modèle et génère sans thinking ni échantillonnage. PyTorch CPU,
+  transformers et jinja2 installés par l'élève ; poids dans le cache hors Git.
+- Première génération réelle rapportée : question endpoint LoRA, réponse correcte
+  `/v1/load_lora_adapter`, 1126 tokens d'entrée, 25 tokens générés, chargement
+  depuis cache 0,65 s et génération 4,58 s. Plafond de sortie non atteint.
+  Consigne de citation non suivie : pas de `[Source 1]` dans la réponse.
+- `answer` intégré à la CLI avec chemins configurables, budget, sauvegarde
+  temporaire puis remplacement du JSON, erreurs attendues présentées par CliError.
+  Exécution réelle rapportée : 10,36 s ; JSON affiché avec question_id, question,
+  réponse correcte, trois sources incluses et k=3. Validation limitée à cet exemple.
+- Compréhension travaillée : tokenizer versus modèle, budget versus quota API,
+  chat template, tenseurs et shape[-1], tokens d'entrée versus tokens générés,
+  sources incluses versus citations produites, cache disque versus mémoire.
+- **Mission actuelle : tester `Generator` et `answer` sans charger Qwen**,
+  par doubles de test ; conserver séparément l'intégration réelle déjà observée.
+  Puis étape 15 : `answer_dataset` lisant les résultats existants, identifiants
+  conservés, textes des sources reconstitués et modèle chargé une seule fois.
+- Restent : génération batch, tests négatifs, essais qualitatifs multi-questions,
+  benchmarks retrieval/indexation documentés, parcours complet et installation
+  propre, README anglais et soutenance. Pas de plafond chiffré de durée pour la
+  génération dans le sujet : les 90 s concernent le retrieval de 200 questions.
+- GPU : amélioration envisagée après intégration CPU, non implémentée ni validée.
+  Aucun bonus commencé. Conserver la baseline BM25 actuelle.
+- Estimation pédagogique de l'obligatoire : environ 75 % (fourchette 70–80 %),
+  sans valeur de note officielle ni de proportion du temps restant. Le pipeline
+  unitaire fonctionne ; le batch et la validation globale restent substantiels.
 
 ### Historique jusqu'au 12 novembre 2026
 
