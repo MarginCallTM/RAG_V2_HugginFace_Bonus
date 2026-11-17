@@ -5,12 +5,7 @@
 !/data/raw/.gitkeep
 !/data/datasets/
 /data/datasets/*
-!/data/datasets/UnansweredQuestions/
-!/data/datasets/AnsweredQuestions/
-/data/datasets/UnansweredQuestions/*
-!/data/datasets/UnansweredQuestions/.gitkeep
-/data/datasets/AnsweredQuestions/*
-!/data/datasets/AnsweredQuestions/.gitkeep
+!/data/datasets/.gitkeep
 /datasets_public/
 
 # Environnements et caches Python
