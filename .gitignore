@@ -17,3 +17,9 @@ __pycache__/
 
 # Fichiers macOS
 .DS_Store
+
+# Provided project attachments
+/vllm-0.10.1.zip
+/datasets_public.zip
+/moulinette.zip
+/moulinette

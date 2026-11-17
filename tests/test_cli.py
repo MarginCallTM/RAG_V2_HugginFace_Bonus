@@ -714,6 +714,7 @@ def test_answer_dataset_cli_reports_invalid_input(
     assert "Loading Qwen..." not in result.stdout
     assert not output_directory.exists()
 
+
 def test_answer_dataset_cli_handles_empty_dataset(tmp_path: Path) -> None:
     """Save valid empty output without loading the language model."""
     source = tmp_path / "empty.json"
