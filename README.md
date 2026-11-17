@@ -36,8 +36,16 @@ when PyTorch reports it available, otherwise CPU. GPU generation was tested on
 an NVIDIA GeForce RTX 4050 Laptop GPU with 6 GB of VRAM. A working NVIDIA driver
 is required for CUDA execution; CPU generation is slower.
 
-Place the supplied corpus and question datasets in this layout, extracting
-the attachments as necessary:
+Place `vllm-0.10.1.zip` and `datasets_public.zip` at the repository root,
+then extract them from that directory:
+
+```bash
+mkdir -p data/raw data/datasets
+unzip vllm-0.10.1.zip -d data/raw
+unzip datasets_public.zip -d data/datasets
+```
+
+The extracted corpus and question datasets must follow this layout:
 
 ```text
 data/
