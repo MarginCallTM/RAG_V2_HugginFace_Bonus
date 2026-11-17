@@ -43,7 +43,14 @@ then extract them from that directory:
 mkdir -p data/raw data/datasets
 unzip vllm-0.10.1.zip -d data/raw
 unzip datasets_public.zip -d data/datasets
+mv data/datasets/datasets_public/public/AnsweredQuestions data/datasets/
+mv data/datasets/datasets_public/public/UnansweredQuestions data/datasets/
 ```
+
+The dataset archive contains the intermediate directories
+`datasets_public/public/`. The two `mv` commands place the question directories
+directly under `data/datasets/`, where the CLI examples expect them.
+Run these extraction commands once when setting up a fresh clone.
 
 The extracted corpus and question datasets must follow this layout:
 
