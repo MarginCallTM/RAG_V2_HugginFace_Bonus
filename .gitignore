@@ -1,5 +1,16 @@
 # Corpus RAG, datasets, index et resultats generes
-/data/
+/data/*
+!/data/raw/
+/data/raw/*
+!/data/raw/.gitkeep
+!/data/datasets/
+/data/datasets/*
+!/data/datasets/UnansweredQuestions/
+!/data/datasets/AnsweredQuestions/
+/data/datasets/UnansweredQuestions/*
+!/data/datasets/UnansweredQuestions/.gitkeep
+/data/datasets/AnsweredQuestions/*
+!/data/datasets/AnsweredQuestions/.gitkeep
 /datasets_public/
 
 # Environnements et caches Python
