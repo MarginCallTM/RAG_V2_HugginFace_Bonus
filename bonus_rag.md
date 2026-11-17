@@ -23,11 +23,13 @@ Ces mesures ne garantissent pas les mêmes résultats sur d'autres machines.
 
 ## 0. Figer une base de comparaison
 
-- [ ] Terminer le contrôle final du mandatory et enregistrer un commit de référence.
+- [x] Terminer le contrôle final du mandatory et enregistrer un commit de référence
+      (`e8db1b6` — `Validate mandatory baseline and plan bonuses`).
 - [x] Enregistrer les versions, la machine, les commandes, les scores et les temps
       (voir le bilan de référence ci-dessous et les commandes du README).
 - [x] Garder BM25 accessible et préserver les signatures minimales du sujet.
-- [ ] Utiliser des dossiers de résultats séparés pour chaque méthode et expérience.
+- [x] Utiliser des dossiers de résultats séparés pour chaque méthode et expérience
+      (premier lot isolé sous `data/output/experiments/baseline/cpu/`).
 - [x] Définir un protocole commun : mêmes questions, mêmes références, même k=5,
       mêmes limites de sources et comparaison avec la moulinette exécutée à la main.
 - [x] Vérifier la base sur CPU ; ne pas confondre le fonctionnement CUDA actuel
@@ -69,7 +71,9 @@ Validation : un point de départ reproductible, sans changement de comportement.
   `data/output/experiments/<methode>/<experience>/`. Ces chemins sont proposés
   pour les prochaines expériences ; ils ne prétendent pas déjà contenir des résultats.
 - Vérification CPU terminée sans relancer les 199 générations.
-- Commit de référence et push : à effectuer par l'élève après ces vérifications.
+- Commit de référence : `e8db1b6` — `Validate mandatory baseline and plan bonuses`.
+  Le push reste une action effectuée par l'élève ; son état distant n'est pas
+  attesté par ce bilan local.
 
 ## 1. Bonus : embeddings sémantiques
 
