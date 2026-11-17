@@ -100,11 +100,19 @@ uv run python -m src evaluate \
   --k 5
 ```
 
-For the official retrieval measurement, run the supplied executable separately
-after choosing the binary for your operating system and naming it `moulinette`:
+For the official retrieval measurement, place the supplied `moulinette.zip`
+at the repository root. It is not included in the Git clone. On Ubuntu,
+extract the supplied binary, copy it to `moulinette`, and make it executable:
 
 ```bash
+unzip -o moulinette.zip moulinette-ubuntu
+cp moulinette-ubuntu moulinette
 chmod +x moulinette
+```
+
+Then run the official retrieval evaluation from the repository root:
+
+```bash
 ./moulinette evaluate_student_search_results \
   data/output/search_results/UnansweredQuestions/dataset_docs_public.json \
   data/datasets/AnsweredQuestions/dataset_docs_public.json \
