@@ -230,3 +230,112 @@ def test_answer_questions_preserves_ids_and_reuses_generator(
         prompt = call.args[0]
         assert "ALPHA passage" in prompt.messages[1].content
         assert prompt.sources == [source]
+
+
+def test_answer_questions_accepts_empty_results(
+    tmp_path: Path,
+) -> None:
+    """Return an empty output without calling the generator."""
+    from unittest.mock import Mock
+
+    from src.datasets import answer_questions
+
+    generator = Mock()
+    results = StudentSearchResults(search_results=[], k=5)
+
+    output = answer_questions(results, generator, tmp_path)
+
+    assert output.search_results == []
+    assert output.k == 5
+    generator.generate.assert_not_called()
+
+
+def test_answer_questions_handles_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    """Preserve a question without sources and report insufficient evidence."""
+    from unittest.mock import Mock
+
+    from src.datasets import answer_questions
+
+    generator = Mock()
+    results = StudentSearchResults(
+        search_results=[
+            MinimalSearchResults(
+                question_id="q1",
+                question="What is ALPHA?",
+                retrieved_sources=[],
+            )
+        ],
+        k=5,
+    )
+
+    output = answer_questions(results, generator, tmp_path)
+
+    assert len(output.search_results) == 1
+    answer = output.search_results[0]
+
+    assert answer.question_id == "q1"
+    assert answer.question == "What is ALPHA?"
+    assert answer.retrieved_sources == []
+    assert "Insufficient evidence" in answer.answer
+    generator.generate.assert_not_called()
+
+
+def test_answer_questions_rejects_duplicate_ids(
+    tmp_path: Path,
+) -> None:
+    """Reject ambiguous identifiers before generating any answer."""
+    from unittest.mock import Mock
+
+    from src.datasets import answer_questions
+
+    generator = Mock()
+    results = StudentSearchResults(
+        search_results=[
+            MinimalSearchResults(
+                question_id="duplicate",
+                question=question,
+                retrieved_sources=[],
+            )
+            for question in ["First question?", "Second question?"]
+        ],
+        k=5,
+    )
+
+    with pytest.raises(ValueError, match="Duplicate question_id"):
+        answer_questions(results, generator, tmp_path)
+
+    generator.generate.assert_not_called()
+
+
+def test_answer_questions_reports_missing_source_file(
+    tmp_path: Path,
+) -> None:
+    """Report an unreadable source rather than inventing an answer."""
+    from unittest.mock import Mock
+
+    from src.datasets import answer_questions
+
+    generator = Mock()
+    results = StudentSearchResults(
+        search_results=[
+            MinimalSearchResults(
+                question_id="q1",
+                question="What is ALPHA?",
+                retrieved_sources=[
+                    MinimalSource(
+                        file_path="missing.md",
+                        first_character_index=0,
+                        last_character_index=5,
+                    )
+                ],
+            )
+        ],
+        k=1,
+    )
+
+    with pytest.raises(FileNotFoundError):
+        answer_questions(results, generator, tmp_path)
+
+    generator.generate.assert_not_called()

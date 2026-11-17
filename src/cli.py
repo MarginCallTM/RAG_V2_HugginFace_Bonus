@@ -17,6 +17,7 @@ from src.datasets import (
     load_dataset,
     save_search_results,
     search_questions,
+    answer_questions,
 )
 from src.retriever import Retriever
 from src.evaluation import evaluate_recall
@@ -358,4 +359,116 @@ class RagCli:
         print(answer_text)
         print(f"\nIncluded sources: {len(sources)}")
         print(f"Saved answer to {target}")
+        print(f"Completed in {perf_counter() - started:.2f} seconds")
+
+    def answer_dataset(
+        self,
+        student_search_results_path: str,
+        save_directory: str = (
+            "data/output/search_results_and_answer/UnansweredQuestions"
+        ),
+        project_root: str = ".",
+        model_name: str = "Qwen/Qwen3-0.6B",
+        context_budget: int = 4096,
+        max_new_tokens: int = 256,
+        device: str = "auto",
+    ) -> None:
+        """Generate and save answers for existing search results
+
+        Args:
+            student_search_results_path: Input search results JSON.
+            save_directory: Directory receiving the answers JSON.
+            project_root: Root used to locate referebced corpus files.
+            model_name: Model identifier or local model path.
+            context_budget: Total input and output token budget.
+            max_new_tokens: Maximum generated tokens per question.
+            device: Execution device: auto, cpu or cuda
+        """
+        if type(context_budget) is not int or context_budget <= 0:
+            raise CliError("context_budget must be a positive integer")
+        if (
+            type(max_new_tokens) is not int
+            or not 0 < max_new_tokens < context_budget
+        ):
+            raise CliError(
+                "max_new_token must be positive and below context_budget"
+            )
+
+        if device not in ("auto", "cpu", "cuda"):
+            raise CliError("device must be auto, cpu or cuda")
+
+        started = perf_counter()
+
+        try:
+            source_path = Path(str(student_search_results_path))
+            target = Path(str(save_directory)) / source_path.name
+            root = Path(str(project_root)).resolve()
+
+            if source_path.resolve() == target.resolve():
+                raise ValueError("Output must not overwrite search results")
+
+            if not root.is_dir():
+                raise ValueError("project_root must be an existing directory")
+
+            with source_path.open(encoding="utf-8") as handle:
+                results = StudentSearchResults.model_validate_json(
+                    handle.read()
+                )
+
+            if results.k < 0:
+                raise ValueError("k must be non negative")
+
+            seen_ids: set[str] = set()
+
+            for result in results.search_results:
+                if result.question_id in seen_ids:
+                    raise ValueError("Duplicate question_id in search results")
+
+                seen_ids.add(result.question_id)
+
+                if not result.question.strip():
+                    raise ValueError("Question must not be empty")
+
+                if len(result.retrieved_sources) > results.k:
+                    raise ValueError("A question has more than k sources")
+
+            total_questions = len(results.search_results)
+            print(f"Loaded {total_questions} questions", flush=True)
+
+            if results.search_results:
+                from src.generator import Generator
+
+                print("Loading Qwen...", flush=True)
+                generator = Generator(
+                    model_name=str(model_name),
+                    context_budget=context_budget,
+                    max_new_tokens=max_new_tokens,
+                    device=str(device),
+                )
+
+                print(f"Device: {generator.device}", flush=True)
+
+                output = answer_questions(results, generator, root)
+            else:
+                output = StudentSearchResultsAndAnswer(
+                    search_results=[],
+                    k=results.k,
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".tmp")
+
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write(output.model_dump_json(indent=2))
+
+            temporary.replace(target)
+        except (OSError, ValueError, RuntimeError, ImportError) as error:
+            raise CliError(
+                f"Dataset answer generation failed: {error}"
+            ) from error
+
+        print(
+            f"Processed {len(output.search_results)} "
+            f"of {total_questions} questions"
+        )
+        print(f"Saved student_search_results_and_answer to {target}")
         print(f"Completed in {perf_counter() - started:.2f} seconds")

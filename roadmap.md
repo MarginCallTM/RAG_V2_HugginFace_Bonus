@@ -530,7 +530,7 @@ Pour chaque bonus : expliquer le besoin, définir le contrat, implémenter par i
 
 ## 7. Suivi de progression
 
-### Point de reprise du 16 novembre 2026 — état courant
+### Point de reprise du 17 novembre 2026 — état courant
 
 Ce point remplace les indications de prochaine mission et les états historiques
 ci-dessous lorsqu'ils les contredisent. Les anciennes mesures restent historiques.
@@ -564,9 +564,11 @@ ci-dessous lorsqu'ils les contredisent. Les anciennes mesures restent historique
   comptage via le chat template Qwen et sélection d'un préfixe de chunks entiers
   selon le budget. Refus si question et instructions seules dépassent le budget.
   Tokenizer simulé dans les tests ; vrai tokenizer utilisé en exploration.
-- Étape 14 : `src/generator.py` charge Qwen/Qwen3-0.6B sur CPU en float32,
-  réutilise le modèle et génère sans thinking ni échantillonnage. PyTorch CPU,
-  transformers et jinja2 installés par l'élève ; poids dans le cache hors Git.
+- Étape 14 : `src/generator.py` charge Qwen/Qwen3-0.6B une seule fois,
+  génère sans thinking ni échantillonnage et choisit le périphérique via
+  `device="auto"` : CUDA disponible en float16, sinon CPU en float32.
+  Modèle et entrées sont déplacés sur le même périphérique. PyTorch CUDA,
+  transformers et jinja2 installés ; poids dans le cache hors Git.
 - Première génération réelle rapportée : question endpoint LoRA, réponse correcte
   `/v1/load_lora_adapter`, 1126 tokens d'entrée, 25 tokens générés, chargement
   depuis cache 0,65 s et génération 4,58 s. Plafond de sortie non atteint.
@@ -578,17 +580,33 @@ ci-dessous lorsqu'ils les contredisent. Les anciennes mesures restent historique
 - Compréhension travaillée : tokenizer versus modèle, budget versus quota API,
   chat template, tenseurs et shape[-1], tokens d'entrée versus tokens générés,
   sources incluses versus citations produites, cache disque versus mémoire.
-- **Mission actuelle : tester `Generator` et `answer` sans charger Qwen**,
-  par doubles de test ; conserver séparément l'intégration réelle déjà observée.
-  Puis étape 15 : `answer_dataset` lisant les résultats existants, identifiants
-  conservés, textes des sources reconstitués et modèle chargé une seule fois.
+- `answer` : cinq cas de tests avec générateur simulé rapportés réussis, puis
+  six cas d'arguments invalides via Fire rapportés réussis. Ils ne constituent
+  pas des tests dédiés de tous les comportements internes de `Generator`.
+- GPU vérifié par l'élève sur RTX 4050 Laptop 6 Go, pilote 595.99.02,
+  PyTorch 2.14.1+cu130 : modèle sur cuda:0 en float16, réponse LoRA correcte.
+  Aucune durée GPU ni accélération par rapport au CPU mesurée à ce stade.
+- Étape 15 en cours : `load_source_chunk` relit les sources avec la convention
+  d'ingestion et contrôle chemins, longueur et bornes ; `answer_questions`
+  traite les résultats existants avec un générateur reçu, conserve l'ordre et
+  les question_id et renvoie un StudentSearchResultsAndAnswer en mémoire.
+  L'élève confirme sept tests datasets réussis après correction result/results.
+- **Mission actuelle : compléter les cas limites de la boucle batch**, puis
+  ajouter la commande Fire `answer_dataset` : lecture/validation du JSON,
+  chemins configurables, modèle chargé une fois, périphérique affiché,
+  sauvegarde JSON et erreurs sans traceback. Elle n'existe pas encore dans la CLI.
+  Vérifier un petit lot réel avant le dataset complet. Prévoir aussi l'option
+  CLI `--device` sur `answer`, qui utilise actuellement le défaut auto.
 - Restent : génération batch, tests négatifs, essais qualitatifs multi-questions,
   benchmarks retrieval/indexation documentés, parcours complet et installation
   propre, README anglais et soutenance. Pas de plafond chiffré de durée pour la
   génération dans le sujet : les 90 s concernent le retrieval de 200 questions.
-- GPU : amélioration envisagée après intégration CPU, non implémentée ni validée.
-  Aucun bonus commencé. Conserver la baseline BM25 actuelle.
-- Estimation pédagogique de l'obligatoire : environ 75 % (fourchette 70–80 %),
+- Dernier lint observé par le tuteur : 55 fichiers sans erreur ; 27 tests
+  answer/prompting/datasets réussis avant le dernier ajout batch. Pas de nouvelle
+  exécution de la suite complète lors de la reprise du 17 novembre.
+- Aucun bonus commencé. Le GPU ne compte pas comme bonus du sujet.
+  Conserver la baseline BM25 actuelle.
+- Estimation pédagogique de l'obligatoire : environ 80 % (fourchette 75–85 %),
   sans valeur de note officielle ni de proportion du temps restant. Le pipeline
   unitaire fonctionne ; le batch et la validation globale restent substantiels.
 

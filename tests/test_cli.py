@@ -670,3 +670,87 @@ def test_answer_cli_rejects_invalid_arguments(
     assert expected_message in result.stderr
     assert "Traceback" not in result.stderr
     assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    "input_kind",
+    ["missing", "invalid_json", "invalid_schema"],
+)
+def test_answer_dataset_cli_reports_invalid_input(
+    tmp_path: Path,
+    input_kind: str,
+) -> None:
+    """Reject invalid batch input without a traceback or output."""
+    source = tmp_path / "questions.json"
+    output_directory = tmp_path / "answers"
+
+    if input_kind == "invalid_json":
+        source.write_text("{", encoding="utf-8")
+    elif input_kind == "invalid_schema":
+        source.write_text("{}", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src",
+            "answer_dataset",
+            "--student_search_results_path",
+            str(source),
+            "--save_directory",
+            str(output_directory),
+            "--project_root",
+            str(tmp_path),
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 1
+    assert "Dataset answer generation failed:" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "Loading Qwen..." not in result.stdout
+    assert not output_directory.exists()
+
+def test_answer_dataset_cli_handles_empty_dataset(tmp_path: Path) -> None:
+    """Save valid empty output without loading the language model."""
+    source = tmp_path / "empty.json"
+    output_directory = tmp_path / "answers"
+
+    source.write_text(
+        json.dumps({"search_results": [], "k": 5}),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src",
+            "answer_dataset",
+            "--student_search_results_path",
+            str(source),
+            "--save_directory",
+            str(output_directory),
+            "--project_root",
+            str(tmp_path),
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert "Loading Qwen..." not in result.stdout
+    assert "Loaded 0 questions" in result.stdout
+    assert "Processed 0 of 0 questions" in result.stdout
+    assert "Saved student_search_results_and_answer to" in result.stdout
+
+    target = output_directory / source.name
+    saved = json.loads(target.read_text(encoding="utf-8"))
+
+    assert saved == {"search_results": [], "k": 5}
