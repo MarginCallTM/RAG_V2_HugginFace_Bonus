@@ -83,6 +83,47 @@ l'index lexical. Le sujet cite `all-MiniLM-L6-v2` comme exemple, sans l'imposer.
 **Concept :** représenter questions et passages par des vecteurs ; rapprocher
 les vecteurs pour retrouver des passages même sans mots identiques.
 
+### Progression pédagogique — 18 novembre 2026
+
+Expériences réalisées dans `notes/bonus/` sur MacBook M2, avec MiniLM
+explicitement placé sur CPU. Les sorties ci-dessous ont été transmises par
+l'élève ; aucun benchmark du corpus ni nouvelle validation Linux n'a été fait.
+Ces cases valident des expériences, pas l'intégration du bonus dans `src/`.
+
+- [x] Comparer produit scalaire, norme et cosinus sur des vecteurs artificiels
+      (`bonus_explore_vector_similarity.py`).
+- [x] Observer les tokens, identifiants, dimensions, padding, attention mask
+      et troncature (`bonus_explore_embedding_tokenizer.py`).
+- [x] Charger `all-MiniLM-L6-v2` avec Transformers/PyTorch sur CPU et observer
+      les représentations de tokens à 384 coordonnées.
+- [x] Calculer un mean pooling masqué, puis normaliser les vecteurs par texte ;
+      normes observées proches de 1.
+- [x] Extraire `encode_texts()` et réutiliser le même modèle pour encoder
+      séparément passages et questions (`bonus_explore_encoder.py`).
+- [x] Comparer deux questions à trois passages par produit matriciel : scores
+      de forme `(2, 3)`, tri et top-k avec conservation des indices.
+      Premiers résultats observés : RAM pour la question GPU (0,4746), port
+      HTTP pour la question serveur (0,7315). Ces exemples ne mesurent pas le recall.
+- [x] Encoder trois passages en deux lots avec `batch_size=2` et tqdm,
+      puis concaténer leurs vecteurs dans l'ordre : résultat `(3, 384)` et
+      classements conservés à de petits écarts numériques près.
+- [x] Adapter la source PyTorch selon la plateforme dans `pyproject.toml`
+      et actualiser `uv.lock` ; scripts exécutés sur le Mac. Pas de nouvelle
+      dépendance d'embeddings ajoutée : Transformers/PyTorch sont réutilisés.
+
+Compréhension travaillée : coordonnées versus norme, direction versus longueur,
+masque et broadcasting, dimensions des scores, lots versus top-k, association
+passage ↔ vecteur. La compréhension de cette association reste à consolider.
+
+À poursuivre : comparaison effective avec BM25 sur les mêmes passages,
+vérification complète du choix de modèle, troncature sur de longs textes,
+persistance et métadonnées, puis intégration avec les vrais `Chunk`.
+Les cases ci-dessous restent ouvertes tant que leur portée complète n'est
+pas validée dans le pipeline ; les primitives explorées ne suffisent pas à
+valider l'index sémantique du corpus.
+
+### Intégration et validation du bonus
+
 - [ ] Comparer un petit exemple lexical et sémantique avant d'intégrer le modèle.
 - [ ] Choisir le modèle et sa bibliothèque après lecture de leur documentation ;
       vérifier taille, licence, limite d'entrée, dépendances et fonctionnement CPU.
@@ -235,5 +276,5 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Premier incrément recommandé : comprendre et observer les embeddings sur
-quelques phrases sur CPU, avant de changer le pipeline mandatory.
+Prochain incrément pédagogique : sauvegarder puis recharger les vecteurs et
+les passages associés sur un petit exemple, avant l'intégration dans `src/`.
