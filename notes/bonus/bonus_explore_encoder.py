@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -69,7 +70,7 @@ def encode_in_batches(
 
 
 def main() -> None:
-    """Encode passage and a question separately with one loaded model."""
+    """Encode passage on CPU and save their vectors and metadata."""
     model_name = "sentence-transformers/all-MiniLM-L6-v2"
 
     print("Loading MiniLM on CPU...", flush=True)
@@ -83,10 +84,6 @@ def main() -> None:
         "Decrease the amount of device RAM allocated to the cache.",
         "Configure the HTTP server port.",
     ]
-    questions = [
-        "How can I reduce GPU memory usage?",
-        "How do I change the port used by the web server?",
-    ]
 
     print("Encoding passages...", flush=True)
     passage_embeddings = encode_in_batches(
@@ -96,36 +93,21 @@ def main() -> None:
         batch_size=2,
     )
 
-    print("Encoding the question...", flush=True)
-    question_embeddings = encode_texts(questions, tokenizer, model)
+    output_dir = Path("data/output/experiments/semantic/persistence")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    index_path = output_dir / "demo_index.pt"
 
-    print("Passages shape:", tuple(passage_embeddings.shape))
-    print("Questions shape:", tuple(question_embeddings.shape))
+    artifact = {
+        "format_version": 1,
+        "model_name": model_name,
+        "max_length": 256,
+        "normalized": True,
+        "passages": passages,
+        "embeddings": passage_embeddings,
+    }
 
-    scores = question_embeddings @ passage_embeddings.T
-
-    print("Score shape:", tuple(scores.shape))
-    print("Scores:", scores.tolist())
-
-    k = 2
-
-    for question_index, question in enumerate(questions):
-        print(f"\nQuestion {question_index}: {question}")
-
-        ranked_results = sorted(
-            enumerate(scores[question_index].tolist()),
-            key=lambda result: result[1],
-            reverse=True,
-        )
-
-        for rank, (passage_index, score) in enumerate(
-            ranked_results[:k],
-            start=1,
-        ):
-            print(
-                f"{rank}. Passage {passage_index}: "
-                f"cosine={score:.4f} | {passages[passage_index]}"
-            )
+    torch.save(artifact, index_path)
+    print("Saved index:", index_path)
 
 
 if __name__ == "__main__":
