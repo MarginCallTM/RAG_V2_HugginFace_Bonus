@@ -3,6 +3,8 @@
 from typing import cast
 
 import torch
+import torch.nn.functional as F
+from tqdm import tqdm
 from pydantic import BaseModel, Field
 from transformers import AutoModel, AutoTokenizer
 from src.models import Chunk
@@ -15,7 +17,10 @@ class EmbeddingConfig(BaseModel):
         default="sentence-transformers/all-MiniLM-L6-v2",
         min_length=1,
     )
-    revision: str = Field(default="main", min_length=1)
+    revision: str = Field(
+        default="1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        min_length=1
+    )
     max_tokens: int = Field(default=256, ge=3, le=256)
     batch_size: int = Field(default=32, ge=1)
 
@@ -91,3 +96,59 @@ class SemanticEncoder:
                 )
 
         return segments
+
+    def encode_segments(self, segments: list[TokenSegment]) -> torch.Tensor:
+        """Encode segments in CPU batches while preseving their order."""
+        if not segments:
+            return torch.empty(
+                (0, self.dimension),
+                dtype=torch.float32,
+                device=self.device,
+            )
+        if any(
+            len(segment.input_ids) > self.config.max_tokens
+            for segment in segments
+        ):
+            raise ValueError("A segment exceeds the token budget")
+
+        batches: list[torch.Tensor] = []
+
+        for start in tqdm(
+            range(0, len(segments), self.config.batch_size),
+            desc="Encoding segments",
+            unit="batch",
+        ):
+            batch_segments = segments[
+                start:start + self.config.batch_size
+            ]
+
+            inputs = self.tokenizer.pad(
+                {
+                    "input_ids": [
+                        segment.input_ids
+                        for segment in batch_segments
+                    ]
+                },
+                padding=True,
+                return_tensors="pt"
+            )
+            inputs = inputs.to(self.device)
+
+            with torch.inference_mode():
+                token_embeddings = cast(
+                    torch.Tensor,
+                    self.model(**inputs).last_hidden_state,
+                )
+
+                mask = inputs["attention_mask"].unsqueeze(-1).to(
+                    dtype=token_embeddings.dtype
+                )
+
+                summed = (token_embeddings * mask).sum(dim=1)
+                counts = mask.sum(dim=1).clamp(min=1.0)
+                pooled = summed / counts
+
+                normalized = F.normalize(pooled, p=2, dim=1)
+
+            batches.append(normalized)
+        return torch.cat(batches, dim=0)
