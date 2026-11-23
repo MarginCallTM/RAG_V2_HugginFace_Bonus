@@ -20,6 +20,7 @@ from src.datasets import (
     answer_questions,
 )
 from src.retriever import Retriever
+from src.retrieval import load_retriever
 from src.evaluation import evaluate_recall
 from src.prompting import build_budgeted_prompt
 
@@ -71,12 +72,63 @@ class RagCli:
         print(f"Saved {len(result.chunks)} chunks to {target}")
         print(f"Indexing completed in {elapsed:.2f} seconds")
 
+    def index_semantic(
+        self,
+        processed_dir: str = "data/processed",
+        output_path: str = "data/processed/semantic_index.pt",
+        batch_size: int = 32,
+        max_tokens: int = 256,
+    ) -> None:
+        """Build a CPU semantic index from existing corpus chunks.
+
+        Args:
+            processed_dir: Directory containing chunks.json.
+            output_path: Destination semantic index file.
+            batch_size: Number of segments encoded per batch.
+            max_tokens: Maximum tokens per segment, including special tokens.
+        """
+        started = perf_counter()
+
+        try:
+            from src.embeddings import EmbeddingConfig
+            from src.semantic_index import (
+                build_semantic_index,
+                save_semantic_index,
+            )
+
+            config = EmbeddingConfig(
+                batch_size=batch_size,
+                max_tokens=max_tokens,
+            )
+            directory = Path(str(processed_dir))
+            target = Path(str(output_path))
+
+            if target.resolve() == (directory / "chunks.json").resolve():
+                raise ValueError(
+                    "Semantic output must not overwrite the chunk index."
+                )
+
+            index = load_index(directory)
+            print(f"Loaded {len(index.chunks)} chunks", flush=True)
+            print("Building semantic index on CPU...", flush=True)
+
+            data, embeddings = build_semantic_index(index, config)
+            saved_path = save_semantic_index(data, embeddings, target)
+        except (OSError, ValueError, RuntimeError, ImportError) as error:
+            raise CliError(
+                f"Semantic indexing failed: {error}"
+            ) from error
+        print(f"Saved semantic index to {saved_path}")
+        print(f"Completed in {perf_counter() - started:.2f} seconds")
+
     def search(
         self,
         query: str,
         k: int = 5,
         processed_dir: str = "data/processed",
         output_path: str = "data/output/search_results/single_query.json",
+        method: str = "bm25",
+        semantic_index_path: str = "data/processed/semantic_index.pt",
     ) -> None:
         """Search one question and save ranked source locxations.
 
@@ -85,6 +137,8 @@ class RagCli:
             k: Maximum number of returned sources.
             processed_dir: Directory containing the saved chunk index.
             output_path: Destination JSON file.
+            method: Retrieval method: BM25 or semantic
+            semantic_index_path: Saved semantic index files.
         """
         if type(k) is not int or k < 0:
             raise CliError("k must be a non-negative integer")
@@ -92,8 +146,11 @@ class RagCli:
         question = UnansweredQuestion(question=str(query))
 
         try:
-            index = load_index(Path(str(processed_dir)))
-            retriever = Retriever(index)
+            retriever = load_retriever(
+                method=str(method),
+                processed_dir=Path(str(processed_dir)),
+                semantic_index_path=Path(str(semantic_index_path)),
+            )
             results = retriever.search(question.question, k=k)
 
             sources = [
@@ -128,7 +185,7 @@ class RagCli:
                 handle.write(output.model_dump_json(indent=2))
 
             temporary.replace(target)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RuntimeError, ImportError) as error:
             raise CliError(f"Search failed: {error}") from error
 
         if not results:
@@ -153,6 +210,8 @@ class RagCli:
             "data/output/search_results/UnansweredQuestions"
         ),
         processed_dir: str = "data/processed",
+        method: str = "bm25",
+        semantic_index_path: str = "data/processed/semantic_index.pt"
     ) -> None:
         """Search a question dataset and save ranked source locations.
 
@@ -161,6 +220,8 @@ class RagCli:
             k: Maximum number of sources returned per question.
             save_directory: Directory receiving the results JSON files.
             processed_dir: Directory containing the saved chunk index.
+            method: Retrieval method: bm25 or semantic.
+            semantic_index_path: Saved semantic index file.
         """
         if type(k) is not int or k < 0:
             raise CliError("k must be a non-negative integer")
@@ -171,8 +232,11 @@ class RagCli:
             dataset_file = Path(str(dataset_path))
             dataset = load_dataset(dataset_file)
 
-            index = load_index(Path(str(processed_dir)))
-            retriever = Retriever(index)
+            retriever = load_retriever(
+                method=str(method),
+                processed_dir=Path(str(processed_dir)),
+                semantic_index_path=Path(semantic_index_path),
+            )
 
             results = search_questions(dataset, retriever, k=k)
 
@@ -180,7 +244,7 @@ class RagCli:
                 Path(str(save_directory)) / dataset_file.name
             )
             save_search_results(results, target)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RuntimeError, ImportError) as error:
             raise CliError(
                 f"Dataset search failed: {error}"
             ) from error

@@ -11,6 +11,53 @@ ne pas en déduire que le mandatory ou les modules récents restent à écrire.
 
 ### 1. Point d'arrêt exact et méthode de travail
 
+**Mise à jour de fin d'intégration CLI — 23 novembre 2026.** Ce bilan et la
+checklist « Intégration et validation du bonus » remplacent les indications
+historiques ci-dessous qui annoncent encore les tests ou la CLI à écrire.
+
+- [x] Reproduire le petit index et le retriever sur Ubuntu CPU ; affichage des
+  bornes corrigé. La recherche sur les wheels retrouve le bon fichier en premier.
+- [x] Ajouter `build_semantic_index()` dans `src/semantic_index.py`.
+- [x] Ajouter `SearchRetriever` (Protocol) et `load_retriever()` dans
+  `src/retrieval.py` ; utiliser cette interface dans `search_questions()`.
+- [x] Exposer `index_semantic`, puis `--method bm25|semantic` et
+  `--semantic_index_path` dans `search` et `search_dataset`. BM25 reste le défaut.
+  `answer` reste BM25 ; `answer_dataset` peut consommer un JSON de sources
+  sémantiques, mais aucune génération complète sémantique n'a été attestée ici.
+- [x] Vérifier les tests dédiés : **26 passed** pour index + retriever
+  (6 + 20), exécutés sans MiniLM. Flake8/mypy ciblés réussis lors des ajouts.
+  L'élève rapporte ensuite **50 passed in 55.47s** pour datasets + CLI.
+  Aucun nouveau total de suite complète ni lint global final n'est revendiqué.
+- [x] Construire l'index complet sur CPU : **16 736 chunks**, **980 lots**,
+  batch_size=32, max_tokens=256 ; **306,22 s** au chronomètre interne de la
+  commande, dont environ 4 min 57 s dans la barre d'encodage.
+  Fichier : `data/processed/semantic_index.pt`. Le nombre exact de segments,
+  la taille du fichier et la mémoire maximale restent à relever.
+- [x] Rechercher les datasets complets et mesurer le recall sémantique à k=5.
+
+| Méthode | Docs (100 questions) | Code (99 questions) |
+|---|---:|---:|
+| BM25, baseline | 81,00 % | 66,67 % |
+| MiniLM, CPU, max par chunk | 66,00 % | 41,41 % |
+
+Sources sémantiques sauvegardées sous
+`data/output/experiments/semantic/full/UnansweredQuestions/` dans les deux
+fichiers `dataset_docs_public.json` et `dataset_code_public.json`.
+La sortie docs transmise utilisait un seuil de 0,50 : son « PASS » ne signifie
+pas que le seuil docs de 0,80 est atteint. Le code échoue au seuil de 0,50.
+Ces résultats ne remplacent pas les scores mandatory BM25. L'égalité entre
+recall@5 et recall@10 s'explique par les cinq sources maximum sauvegardées.
+
+**Prochain incrément :** comparer les succès/échecs par question entre BM25
+et MiniLM, avec la même règle d'IoU et les mêmes références, pour mesurer
+leur complémentarité. Puis expliquer et tester RRF avant de coder le bonus 2.
+Ne pas promettre un gain hybride et ne pas additionner directement les scores
+BM25 et cosinus. Avant commit : relancer le lint global après les dernières
+modifications ; le commit et le push restent effectués par l'élève.
+
+**Historique antérieur à cette mise à jour** (les sections 2 à 7 suivantes
+décrivent également la reprise initiale, pas l'état de fin d'intégration) :
+
 - Le mandatory BM25/Qwen est implémenté. Le travail actuel porte sur le
   **bonus 1, recherche sémantique**, pas encore sur la recherche hybride.
 - Développement récent et essais effectués sur le **MacBook M2**, en CPU
@@ -517,34 +564,36 @@ hybride ni performance du corpus complet n'est encore mesuré.
 ### Intégration et validation du bonus
 
 - [ ] Comparer un petit exemple lexical et sémantique avant d'intégrer le modèle.
-- [ ] Choisir le modèle et sa bibliothèque après lecture de leur documentation ;
+- [x] Choisir le modèle et sa bibliothèque après lecture de leur documentation ;
       vérifier taille, licence, limite d'entrée, dépendances et fonctionnement CPU.
 - [x] Expliquer la limite du tokenizer d'embeddings : 2 000 caractères ne
       garantissent pas qu'un passage entier tient dans sa fenêtre de tokens.
 - [x] Définir et documenter la politique initiale pour les passages trop longs :
       fenêtres sans chevauchement, 256 positions dont deux tokens spéciaux,
       plusieurs vecteurs associés au chunk original. Score maximal par chunk
-      intégré au retriever ; encore à tester systématiquement et à évaluer
-      sur le corpus complet.
-- [ ] Ajouter uniquement les dépendances retenues avec uv et mettre à jour le lockfile.
+      intégré au retriever, testé et évalué sur le corpus complet.
+- [x] Réutiliser Transformers/PyTorch ; configuration uv multiplateforme et
+      lockfile actualisés lors des étapes précédentes, sans dépendance supplémentaire.
 - [x] Définir les métadonnées de l'index : modèle/révision, paramètres, version
       de préparation des textes, dimension et association vecteur ↔ chunk.
 - [x] Encoder les segments des chunks par lots sur CPU avec une progression tqdm
-      (intégration vérifiée sur trois chunks ; corpus complet à mesurer).
+      (échantillon puis corpus complet exécutés sur CPU).
 - [x] Normaliser les vecteurs pour utiliser une similarité cosinus cohérente.
-- [x] Commencer par une recherche matricielle exacte, implémentée sur l'index
-      d'essai ; mesures du corpus complet encore à faire avant toute décision
-      d'ajout d'une bibliothèque vectorielle plus complexe.
+- [x] Commencer par une recherche matricielle exacte, évaluée sur le corpus
+      complet ; pas de bibliothèque vectorielle supplémentaire ajoutée.
 - [x] Persister vecteurs et métadonnées sous un chemin configurable ignoré par Git.
 - [x] Implémenter une recherche sémantique retournant `list[ScoredChunk]` avec
-      les sources originales, comme BM25 ; exemple réel exécuté sur trois chunks.
-      Branchement CLI/datasets et tests dédiés du retriever encore à faire.
-- [ ] Ajouter un choix de méthode à la CLI en conservant BM25 par défaut.
-- [ ] Tester sans téléchargement : dimensions, ordre, k=0, grand k, index vide,
+      les sources originales, comme BM25 ; branchement CLI/datasets effectué.
+- [x] Ajouter un choix de méthode à la CLI en conservant BM25 par défaut.
+- [x] Tester sans téléchargement : dimensions, ordre, k=0, grand k, index vide,
       association des sources, score et persistance avec encodeur simulé.
 - [x] Faire un test d'intégration de l'encodeur et de la persistance avec le vrai
-      modèle forcé sur CPU (échantillon Mac ; retrieval complet non validé).
-- [ ] Mesurer recall@5 docs/code, temps d'indexation/recherche et mémoire sur CPU.
+      modèle forcé sur CPU (Mac puis Ubuntu, échantillon et corpus complet).
+- [x] Mesurer recall@5 docs/code et temps de construction de l'index sur CPU.
+- [ ] Compléter les mesures : temps de recherche docs/code, nombre exact de
+      segments, proportion de chunks multisegments, taille et mémoire maximale.
+- [ ] Compléter les tests ciblés de segmentation/pooling/lots de l'encodeur
+      et la couverture CLI propre au choix de méthode et à index_semantic.
 
 Validation : index sémantique rechargeable et recherche opérationnelle CPU,
 avec sources exactes et comparaison documentée. Une amélioration de recall
@@ -676,5 +725,5 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochain incrément : suivre la reprise Lenovo du 23 novembre en tête du document,
-reproduire l'échantillon, corriger son affichage et tester le retriever sémantique.
+Prochain incrément : comparer les succès/échecs BM25 et MiniLM par question,
+puis préparer la fusion RRF du bonus hybride. Voir le bilan actuel en tête.

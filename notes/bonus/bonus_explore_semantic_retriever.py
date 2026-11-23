@@ -29,7 +29,7 @@ def main() -> None:
         print(
             f"{chunk.file_path} "
             f"[{chunk.first_character_index}:"
-            f"{chunk.first_character_index}]"
+            f"{chunk.last_character_index}]"
         )
         print("Preview:", repr(chunk.text[:150]))
 

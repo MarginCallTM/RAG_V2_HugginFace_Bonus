@@ -13,6 +13,9 @@ The pipeline preserves source paths and character ranges, validates exchanged
 data with Pydantic, and exposes its commands through Python Fire. Retrieval
 quality is measured independently from answer quality.
 
+An optional CPU semantic retriever is also available alongside BM25. BM25
+remains the default method and the validated mandatory retrieval baseline.
+
 ## Instructions
 
 ### Requirements and installation
@@ -205,6 +208,10 @@ Question(s) → identifier-aware tokenization → BM25 → ranked source locatio
 | `src/indexer.py` | Build, validate, save and load the chunk index. |
 | `src/tokenizer.py` | Extract lexical terms and identifier components. |
 | `src/retriever.py` | Build BM25 statistics and rank passages. |
+| `src/embeddings.py` | Segment chunks by tokens and encode them with MiniLM on CPU. |
+| `src/semantic_index.py` | Build, validate, save and load semantic index data and vectors. |
+| `src/semantic_retriever.py` | Rank original chunks by their best segment similarity. |
+| `src/retrieval.py` | Define the shared search Protocol and select BM25 or semantic retrieval. |
 | `src/prompting.py` | Construct sourced messages and select a prefix within the token budget. |
 | `src/generator.py` | Load Qwen, select a device and generate answer text. |
 | `src/datasets.py` | Orchestrate dataset search and answer generation. |
@@ -250,6 +257,85 @@ a retriever is constructed and reused across questions within a batch.
 The persisted index currently stores chunks rather than serialized BM25
 statistics.
 
+### Optional CPU semantic retrieval
+
+The semantic retriever uses `sentence-transformers/all-MiniLM-L6-v2`, pinned
+to revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`. It uses the existing
+Transformers/PyTorch dependencies, without Sentence Transformers or FAISS.
+The first use downloads model files if they are not already cached.
+
+Each original chunk is segmented into token windows of at most 256 tokens,
+including special tokens, without overlap. This avoids dropping the end of
+chunks that exceed the encoder's selected token budget. MiniLM runs on CPU
+in float32. Masked mean pooling and L2 normalization produce one 384-dimensional
+vector per segment. Query vectors use the same encoder and preprocessing;
+questions exceeding the configured token budget are rejected rather than
+silently truncated.
+
+Search computes exact dot products, equivalent to cosine similarities for
+normalized vectors. Each chunk receives the maximum score of its segments,
+so it appears only once in the results. The returned source is the original
+chunk, with its exact path and character range. Ties use original chunk order.
+There is no positive-score filter in the semantic method: negative similarities
+can be returned among the best available results, unlike the BM25 policy.
+
+Build the semantic index after the mandatory `index` command:
+
+```bash
+uv run python -m src index_semantic \
+  --processed_dir data/processed \
+  --output_path data/processed/semantic_index.pt \
+  --batch_size 32
+```
+
+`--max_tokens` defaults to 256, and `--batch_size` controls the number of
+segments encoded together. Semantic indexing is an additional operation; it
+does not overwrite `chunks.json`. Index data, encoder settings and vectors
+are saved together and validated on loading. Rebuild the semantic index after
+changing the corpus or chunk configuration; automatic incremental updates are
+not implemented.
+
+Search an individual question:
+
+```bash
+uv run python -m src search \
+  "Which environment variable sets the maximum allowed wheel size?" \
+  --method semantic \
+  --semantic_index_path data/processed/semantic_index.pt \
+  --output_path data/output/experiments/semantic/single_query.json \
+  --k 5
+```
+
+Search a full dataset:
+
+```bash
+uv run python -m src search_dataset \
+  --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json \
+  --method semantic \
+  --semantic_index_path data/processed/semantic_index.pt \
+  --save_directory data/output/experiments/semantic/full/UnansweredQuestions \
+  --k 5
+```
+
+Replace `dataset_docs_public.json` with `dataset_code_public.json` for code
+questions. Both search commands default to `--method bm25` when omitted.
+The selected retriever is reused across questions in a batch. Semantic search
+produces the same `StudentSearchResults` JSON contract as BM25; `answer_dataset`
+can consume this file without changing its interface. Single-query `answer`
+currently still retrieves with BM25. Full semantic answer generation has not
+yet been evaluated.
+
+Evaluate the semantic documentation results separately:
+
+```bash
+./moulinette evaluate_student_search_results \
+  data/output/experiments/semantic/full/UnansweredQuestions/dataset_docs_public.json \
+  data/datasets/AnsweredQuestions/dataset_docs_public.json \
+  --k 5 --max_context_length 2000 --threshold 0.80
+```
+
+For code, replace both dataset filenames and use `--threshold 0.50`.
+
 ## Prompting and generation: design decisions
 
 Prompts contain system instructions, the question and numbered evidence blocks
@@ -280,7 +366,7 @@ checkpoint/resume feature: a failed batch must be rerun.
 
 ## Performance analysis
 
-Public retrieval measurements with 2,000-character chunks:
+Public BM25 retrieval measurements with 2,000-character chunks:
 
 | Dataset | Questions | Recall@1 | Recall@3 | Recall@5 | Required Recall@5 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -308,6 +394,38 @@ not for recall evaluation. Search timing includes index loading, BM25
 construction, retrieval and JSON output; it excludes Qwen generation.
 These are single-run development measurements, not hardware-independent
 guarantees. The subject specifies no numerical answer-generation time limit.
+
+### Semantic retrieval measurements
+
+Full-corpus semantic retrieval was evaluated on CPU on 23 November 2026,
+using the same public datasets, original chunks and `k=5`:
+
+| Method | Docs Recall@5 (100 questions) | Code Recall@5 (99 questions) |
+| --- | ---: | ---: |
+| BM25 baseline | 81.00% | 66.67% |
+| MiniLM, maximum segment similarity per chunk | 66.00% | 41.41% |
+
+Semantic indexing encoded 16,736 original chunks in 980 batches of up to
+32 segments. The command reported **306.22 seconds** in total on CPU, including
+approximately 4 minutes 57 seconds in the encoding progress bar. This is an
+additional vector-building measurement, separate from the 10.10-second
+mandatory chunk-indexing baseline. The semantic build alone exceeds 300 seconds;
+it is not presented as satisfying that ceiling for a combined indexing flow.
+Exact segment count, index size, peak memory and full semantic query timings
+remain to be recorded. Small-sample throughput is not used to predict full-corpus
+performance.
+
+The semantic method underperforms BM25 on both datasets and does not reach
+either mandatory recall threshold by itself. A documentation run printed PASS
+with a 0.50 threshold, but the documentation requirement is 0.80: its measured
+66% does not meet that requirement. BM25 remains the validated default.
+Only five results per question were saved, so the displayed recall@10 adds
+no information beyond recall@5 for this experiment.
+
+These results motivate inspecting complementary successes and failures before
+implementing hybrid fusion. No hybrid gain has been measured or is guaranteed.
+The index and retrieval are functional on CPU; ranking quality and answer
+grounding remain separate evaluation concerns.
 
 ### Answer quality and limitations
 
@@ -345,9 +463,10 @@ the 256-token output cap also limit reasoning and completeness.
   incorrect reasoning and weak citations that the retrieval moulinette does
   not evaluate.
 
-The current implementation focuses on the mandatory lexical RAG pipeline.
-Semantic embeddings, hybrid retrieval, incremental indexing, persistent query
-caching and a local HTTP API are not implemented bonuses.
+The mandatory lexical RAG pipeline and optional CPU semantic indexing/retrieval
+are implemented. Hybrid retrieval, incremental indexing, persistent query
+caching and a local HTTP API are not implemented. The remaining bonus work and
+validation checklist are tracked in `bonus_rag.md`.
 
 ## Resources
 

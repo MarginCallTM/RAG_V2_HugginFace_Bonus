@@ -13,7 +13,7 @@ from src.models import (
     MinimalAnswer,
     StudentSearchResultsAndAnswer,
 )
-from src.retriever import Retriever
+from src.retrieval import SearchRetriever
 from src.ingest import read_text
 from typing import TYPE_CHECKING
 from src.prompting import build_budgeted_prompt
@@ -30,7 +30,7 @@ def load_dataset(path: Path) -> RagDataset:
 
 def search_questions(
     dataset: RagDataset,
-    retriever: Retriever,
+    retriever: SearchRetriever,
     k: int,
 ) -> StudentSearchResults:
     """Search every question using one already prepared retriever. """

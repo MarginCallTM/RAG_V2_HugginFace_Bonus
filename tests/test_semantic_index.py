@@ -1,16 +1,18 @@
 """Test semantic index validation and persistence without loading MiniLM."""
 
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
 from pydantic import ValidationError
 
 from src.embeddings import EmbeddingConfig, TokenSegment
-from src.models import Chunk
+from src.models import Chunk, ChunkIndex
 from src.semantic_index import (
     SemanticIndexData,
     SemanticIndexMetaData,
+    build_semantic_index,
     load_semantic_index,
     save_semantic_index,
     validate_embeddings,
@@ -111,3 +113,44 @@ def test_semantic_index_round_trip(
     assert not target.with_name(target.name + ".tmp").exists()
     assert restored_data == semantic_data
     assert torch.equal(restored_embeddings, embeddings)
+
+
+def test_build_semantic_index_preserves_sources_and_vector_order(
+    semantic_data: SemanticIndexData,
+    embeddings: torch.Tensor,
+) -> None:
+    """Assemble encoder outputs without losing provenance or row order."""
+    index = ChunkIndex(max_chunk_size=2000, chunks=semantic_data.chunks)
+    config = EmbeddingConfig(max_tokens=8, batch_size=2)
+    encoder = Mock()
+    encoder.config = config
+    encoder.dimension = 2
+    encoder.segment_chunks.return_value = semantic_data.segments
+    encoder.encode_segments.return_value = embeddings
+
+    with patch(
+        "src.semantic_index.SemanticEncoder", return_value=encoder,
+    ) as constructor:
+        data, vectors = build_semantic_index(index, config)
+
+    constructor.assert_called_once_with(config)
+    encoder.segment_chunks.assert_called_once_with(index.chunks)
+    encoder.encode_segments.assert_called_once_with(semantic_data.segments)
+    assert data.chunks == index.chunks
+    assert data.segments == semantic_data.segments
+    assert data.metadata.encoder_config == config
+    assert data.metadata.dimension == 2
+    assert data.metadata.chunk_count == 1
+    assert data.metadata.segment_count == 2
+    assert torch.equal(vectors, embeddings)
+
+
+def test_build_semantic_index_rejects_empty_input_before_loading() -> None:
+    """Avoid initializing the model for an unusable empty corpus."""
+    index = ChunkIndex(max_chunk_size=2000, chunks=[])
+
+    with patch("src.semantic_index.SemanticEncoder") as constructor:
+        with pytest.raises(ValueError, match="empty chunk index"):
+            build_semantic_index(index)
+
+    constructor.assert_not_called()

@@ -6,8 +6,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
-from src.embeddings import EmbeddingConfig, TokenSegment
-from src.models import Chunk
+from src.embeddings import (
+    EmbeddingConfig,
+    TokenSegment,
+    SemanticEncoder,
+)
+from src.models import Chunk, ChunkIndex
 
 
 class SemanticIndexMetaData(BaseModel):
@@ -102,6 +106,46 @@ def validate_embeddings(
         atol=1e-5,
     ):
         raise ValueError("Embeddings must have unit L2 norms")
+
+
+def build_semantic_index(
+    index: ChunkIndex,
+    config: EmbeddingConfig | None = None,
+) -> tuple[SemanticIndexData, torch.Tensor]:
+    """Build validated semantic data and vectors from corpus chunks.\
+
+    Args:
+        index: Existing corpus chunks with their source locations.
+        config: Encoder settings, or defaults when omitted.
+
+    Returns:
+        Semantic index data and aligned normalized CPU vectors.
+
+    Raise:
+        ValueError: If the index is emptu or generated data is invalid.
+    """
+    if not index.chunks:
+        raise ValueError("Cannot encode an empty chunk index")
+
+    encoder = SemanticEncoder(config)
+    segments = encoder.segment_chunks(index.chunks)
+    embeddings = encoder.encode_segments(segments)
+
+    metadata = SemanticIndexMetaData(
+        encoder_config=encoder.config,
+        dimension=encoder.dimension,
+        chunk_count=len(index.chunks),
+        segment_count=len(segments),
+    )
+
+    data = SemanticIndexData(
+        metadata=metadata,
+        chunks=index.chunks,
+        segments=segments,
+    )
+    validate_embeddings(data, embeddings)
+
+    return data, embeddings
 
 
 def save_semantic_index(
