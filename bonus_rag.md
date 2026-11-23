@@ -68,7 +68,9 @@ recall@5 et recall@10 s'explique par les cinq sources maximum sauvegardées.
   propagation des poids non égaux et leur arithmétique ; leur couverture
   persistante dans pytest reste à compléter.
 - Recherche hybride réelle validée via `search`, puis datasets complets sur CPU.
-  La génération Qwen avec ces sources n'a pas encore été vérifiée.
+  Un smoke test Qwen CPU de trois questions avec ces sources a ensuite été
+  exécuté par l'élève et son JSON vérifié : LoRA et embed corrects, lm_eval
+  incomplet, citations absentes. Cela valide l'intégration sur cet échantillon.
 - Vérification globale après intégration pondérée : **285 tests réussis en
   68,28 s**, flake8 réussi sur le projet, mypy réussi sur **77 fichiers** avec
   les flags mandatory. Aucun commit ni push effectué par l'assistant.
@@ -103,10 +105,11 @@ Artefacts ignorés par Git :
 - Les logs `.evaluation.txt` sont à côté des JSON ; les candidats par méthode
   sont conservés sous `weight_sweep_c0/candidates/`.
 
-**Prochain incrément :** clôturer la validation hybride par un petit batch
-Qwen forcé sur CPU et quelques tests des poids/du chargement de méthode.
-Puis commencer le bonus 3 : manifeste des fichiers et détection des changements
-avant toute réindexation incrémentale. La comparaison exhaustive des succès
+**Prochain incrément sur MacBook :** commencer le bonus 3 avec
+[bonus3_architecture.md](bonus3_architecture.md) : manifeste des fichiers et
+détection des changements avant toute réindexation incrémentale. Le petit
+batch Qwen CPU hybride est effectué ; les tests persistants des poids et du
+chargement de méthode restent à compléter. La comparaison exhaustive des succès
 par question a été reportée au choix de l'élève, elle n'est pas un préalable
 imposé par le sujet. Ne pas poursuivre une recherche illimitée de paramètres.
 Le commit et le push restent effectués par l'élève.
@@ -672,13 +675,14 @@ n'est pas garantie par l'ajout d'embeddings.
       ils sont actuellement configurés dans `src/retrieval.py`.
 - [x] Tester la fusion sur des listes contrôlées : source commune, source unique,
       classement vide, égalité, k=0 et grand k.
-- [ ] Brancher les sources fusionnées sur le prompt et le générateur existants.
+- [x] Brancher les sources fusionnées sur le prompt et le générateur existants.
 - [x] Comparer BM25, sémantique et hybride sur les mêmes datasets à recall@5.
 - [x] Comparer les constantes et poids sur des candidats identiques ; retenir
       C=0 et BM25/MiniLM 65/35 sans revendiquer de généralisation hors public.
 - [ ] Ajouter des tests pytest persistants pour les poids et leur validation,
       ainsi que le choix hybride et la cohérence des index via le chargeur.
-- [ ] Vérifier quelques réponses et la gestion du budget avec les sources hybrides.
+- [x] Vérifier quelques réponses et la gestion du budget avec les sources hybrides
+      (trois questions CPU ; limites de qualité consignées dans le bilan).
 - [x] Documenter les scores et limites dans le README, sur les datasets complets.
 - [ ] Compléter un benchmark hybride dédié : temps total de recherche et mémoire.
       Les balayages de paramètres avec candidats réutilisés ne remplacent pas
@@ -691,6 +695,17 @@ hybride CPU, avec des résultats dédupliqués et évalués.
 
 **Exigé :** lorsqu'un fichier change, réindexer ce fichier au lieu de
 reconstruire systématiquement tout l'index.
+
+**Architecture et reprise sur MacBook :** voir
+[bonus3_architecture.md](bonus3_architecture.md). Le bonus 3 n'est pas encore
+implémenté. Premier incrément prévu : manifeste SHA-256 et classification des
+fichiers, sans modifier les index. Le document distingue exigences du sujet,
+choix proposés, étapes d'intégration et critères de validation.
+
+Le smoke test hybride de trois questions sur CPU est maintenant effectué et
+son JSON vérifié : intégration fonctionnelle, réponses LoRA/embed correctes,
+commande lm_eval incomplète et citations absentes. Tests ciblés des poids et
+du chargeur hybride encore à compléter ; ne pas prétendre cette couverture acquise.
 
 - [ ] Définir un manifeste par fichier : chemin, empreinte du contenu et version
       de configuration du chunking ; utiliser les dates comme optimisation
@@ -790,5 +805,6 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochain incrément : petit batch Qwen CPU avec sources hybrides et tests
-ciblés restants, puis manifeste et détection des changements (bonus 3).
+Prochaine séance : reprendre sur MacBook avec `bonus3_architecture.md`,
+commencer le manifeste et la détection des changements. Le smoke test Qwen
+hybride CPU est effectué ; les tests ciblés restants sont conservés dans le suivi.
