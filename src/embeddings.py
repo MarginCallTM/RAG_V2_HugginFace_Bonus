@@ -97,6 +97,31 @@ class SemanticEncoder:
 
         return segments
 
+    def _encode_batch(self, input_ids: list[list[int]]) -> torch.Tensor:
+        """Encode one nonempty batch of prepared token sequences."""
+        inputs = self.tokenizer.pad(
+            {"input_ids": input_ids},
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self.device)
+
+        with torch.inference_mode():
+            token_embeddings = cast(
+                torch.Tensor,
+                self.model(**inputs).last_hidden_state,
+            )
+
+            mask = inputs["attention_mask"].unsqueeze(-1).to(
+                dtype=token_embeddings.dtype
+            )
+
+            summed = (token_embeddings * mask).sum(dim=1)
+            counts = mask.sum(dim=1).clamp(min=1.0)
+            pooled = summed / counts
+
+        return F.normalize(pooled, p=2, dim=1)
+
     def encode_segments(self, segments: list[TokenSegment]) -> torch.Tensor:
         """Encode segments in CPU batches while preseving their order."""
         if not segments:
@@ -122,33 +147,26 @@ class SemanticEncoder:
                 start:start + self.config.batch_size
             ]
 
-            inputs = self.tokenizer.pad(
-                {
-                    "input_ids": [
-                        segment.input_ids
-                        for segment in batch_segments
-                    ]
-                },
-                padding=True,
-                return_tensors="pt"
-            )
-            inputs = inputs.to(self.device)
-
-            with torch.inference_mode():
-                token_embeddings = cast(
-                    torch.Tensor,
-                    self.model(**inputs).last_hidden_state,
-                )
-
-                mask = inputs["attention_mask"].unsqueeze(-1).to(
-                    dtype=token_embeddings.dtype
-                )
-
-                summed = (token_embeddings * mask).sum(dim=1)
-                counts = mask.sum(dim=1).clamp(min=1.0)
-                pooled = summed / counts
-
-                normalized = F.normalize(pooled, p=2, dim=1)
-
-            batches.append(normalized)
+            batch_ids = [
+                segment.input_ids
+                for segment in batch_segments
+            ]
+            batches.append(self._encode_batch(batch_ids))
         return torch.cat(batches, dim=0)
+
+    def encode_query(self, query: str) -> torch.Tensor:
+        """Encode one nonblank question without silently truncating it"""
+        if not query.strip():
+            raise ValueError("Question must not be blank")
+
+        encoded = self.tokenizer(
+            query,
+            truncation=False,
+        )
+
+        token_ids = cast(list[int], encoded["input_ids"])
+
+        if len(token_ids) > self.config.max_tokens:
+            raise ValueError("Question exceeds the token budget")
+
+        return self._encode_batch([token_ids])

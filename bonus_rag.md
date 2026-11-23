@@ -113,37 +113,78 @@ Ces cases valident des expériences, pas l'intégration du bonus dans `src/`.
 
 Compréhension travaillée : coordonnées versus norme, direction versus longueur,
 masque et broadcasting, dimensions des scores, lots versus top-k, association
-passage ↔ vecteur. La compréhension de cette association reste à consolider.
+passage ↔ vecteur. Le pooling regroupe les représentations ; la normalisation
+ajuste la norme. Les questions de compréhension ont été reprises sur ces points.
 
-À poursuivre : comparaison effective avec BM25 sur les mêmes passages,
-vérification complète du choix de modèle, troncature sur de longs textes,
-persistance et métadonnées, puis intégration avec les vrais `Chunk`.
-Les cases ci-dessous restent ouvertes tant que leur portée complète n'est
-pas validée dans le pipeline ; les primitives explorées ne suffisent pas à
-valider l'index sémantique du corpus.
+### Point de reprise — 20 novembre 2026
+
+Intégration effectuée progressivement par l'élève dans `src/`, dans l'ordre
+des données. État vérifié par lecture du code ; résultats d'exécution transmis
+par l'élève, sauf les contrôles du corpus explicitement indiqués ci-dessous.
+
+- [x] Installer corpus et datasets publics sur cette copie : 100 questions docs,
+      99 code ; correspondance des identifiants et questions entre les scopes.
+      Contrôle local : sources présentes, bornes valides et texte des 16 736
+      chunks existants conforme aux tranches des fichiers du corpus.
+- [x] Observer la perte d'une information finale par troncature sur un texte
+      de 1 717 caractères et 292 tokens ; récupération par deux segments de
+      256 et 38 positions, tokens spéciaux compris.
+- [x] Explorer le score maximal par passage à partir des scores des segments,
+      sans doublonner le passage. Cette fusion n'est pas encore dans `src/`.
+- [x] Créer `EmbeddingConfig`, `TokenSegment` et `SemanticEncoder` dans
+      `src/embeddings.py` : CPU float32, tokenizer fast, segmentation sans
+      chevauchement, encodage par lots, pooling masqué et normalisation L2.
+- [x] Fixer la révision du modèle et du tokenizer à
+      `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, disponible dans le cache Mac.
+- [x] Encoder un échantillon réel de trois chunks : six segments, trois lots
+      de deux, tenseur `(6, 384)`, normes proches de 1 et associations conservées.
+- [x] Créer `SemanticIndexMetaData` et `SemanticIndexData` dans
+      `src/semantic_index.py` : configuration, versions, compteurs, dimension,
+      stratégie de préparation et validation des associations déclarées.
+- [x] Vérifier forme, CPU, float32, valeurs finies et normes des vecteurs ;
+      copie contenant un vecteur nul explicitement refusée.
+- [x] Sauvegarder les données simples et les vecteurs dans un fichier local
+      unique via un temporaire ; recharger sur CPU avec `weights_only=True`
+      et relancer les validations. Chemin configurable par argument `Path`.
+      Échantillon : `data/output/experiments/semantic/sample/semantic_index.pt`,
+      17 775 octets ; données et vecteurs exactement conservés à l'aller-retour.
+- [x] Ajouter quatre tests sans chargement de modèle dans
+      `tests/test_semantic_index.py` : vecteurs valides, vecteur nul, compteur
+      incohérent et persistance. Quatre tests et `make lint` rapportés réussis
+      par l'élève ; pas de nouvelle exécution de toute la suite attestée ici.
+
+À poursuivre dans cet ordre : encodage des questions dans `src/`, retriever
+sémantique et regroupement par chunk, comparaison avec BM25, branchement CLI
+et datasets, indexation complète et mesures, puis validation Lenovo CPU.
+L'index d'essai ne couvre que trois chunks : aucun recall sémantique, gain
+hybride ni performance du corpus complet n'est encore mesuré.
 
 ### Intégration et validation du bonus
 
 - [ ] Comparer un petit exemple lexical et sémantique avant d'intégrer le modèle.
 - [ ] Choisir le modèle et sa bibliothèque après lecture de leur documentation ;
       vérifier taille, licence, limite d'entrée, dépendances et fonctionnement CPU.
-- [ ] Expliquer la limite du tokenizer d'embeddings : 2 000 caractères ne
+- [x] Expliquer la limite du tokenizer d'embeddings : 2 000 caractères ne
       garantissent pas qu'un passage entier tient dans sa fenêtre de tokens.
-- [ ] Définir et documenter la politique pour les passages trop longs
-      (segmentation/agrégation ou troncature mesurée), sans perdre la provenance.
+- [x] Définir et documenter la politique initiale pour les passages trop longs :
+      fenêtres sans chevauchement, 256 positions dont deux tokens spéciaux,
+      plusieurs vecteurs associés au chunk original. Score maximal par chunk
+      prévu pour la recherche, encore à intégrer et à évaluer sur le corpus.
 - [ ] Ajouter uniquement les dépendances retenues avec uv et mettre à jour le lockfile.
-- [ ] Définir les métadonnées de l'index : modèle/révision, paramètres, version
+- [x] Définir les métadonnées de l'index : modèle/révision, paramètres, version
       de préparation des textes, dimension et association vecteur ↔ chunk.
-- [ ] Encoder les chunks par lots sur CPU avec une progression tqdm.
-- [ ] Normaliser les vecteurs pour utiliser une similarité cosinus cohérente.
+- [x] Encoder les segments des chunks par lots sur CPU avec une progression tqdm
+      (intégration vérifiée sur trois chunks ; corpus complet à mesurer).
+- [x] Normaliser les vecteurs pour utiliser une similarité cosinus cohérente.
 - [ ] Commencer par une recherche matricielle exacte ; mesurer avant d'ajouter
       une bibliothèque d'index vectoriel plus complexe.
-- [ ] Persister vecteurs et métadonnées sous un chemin configurable ignoré par Git.
+- [x] Persister vecteurs et métadonnées sous un chemin configurable ignoré par Git.
 - [ ] Implémenter une recherche sémantique avec le même contrat de sources que BM25.
 - [ ] Ajouter un choix de méthode à la CLI en conservant BM25 par défaut.
 - [ ] Tester sans téléchargement : dimensions, ordre, k=0, grand k, index vide,
       association des sources, score et persistance avec encodeur simulé.
-- [ ] Faire un test d'intégration avec le vrai modèle forcé sur CPU.
+- [x] Faire un test d'intégration de l'encodeur et de la persistance avec le vrai
+      modèle forcé sur CPU (échantillon Mac ; retrieval complet non validé).
 - [ ] Mesurer recall@5 docs/code, temps d'indexation/recherche et mémoire sur CPU.
 
 Validation : index sémantique rechargeable et recherche opérationnelle CPU,
@@ -276,5 +317,5 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochain incrément pédagogique : sauvegarder puis recharger les vecteurs et
-les passages associés sur un petit exemple, avant l'intégration dans `src/`.
+Prochain incrément : encoder une question avec le modèle et la configuration
+de l'index sauvegardé, puis construire la recherche sémantique sourcée.
