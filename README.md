@@ -13,7 +13,7 @@ The pipeline preserves source paths and character ranges, validates exchanged
 data with Pydantic, and exposes its commands through Python Fire. Retrieval
 quality is measured independently from answer quality.
 
-An optional CPU semantic retriever is also available alongside BM25. BM25
+Optional CPU semantic and hybrid retrievers are also available alongside BM25. BM25
 remains the default method and the validated mandatory retrieval baseline.
 
 ## Instructions
@@ -211,7 +211,9 @@ Question(s) → identifier-aware tokenization → BM25 → ranked source locatio
 | `src/embeddings.py` | Segment chunks by tokens and encode them with MiniLM on CPU. |
 | `src/semantic_index.py` | Build, validate, save and load semantic index data and vectors. |
 | `src/semantic_retriever.py` | Rank original chunks by their best segment similarity. |
-| `src/retrieval.py` | Define the shared search Protocol and select BM25 or semantic retrieval. |
+| `src/retrieval.py` | Define the shared search Protocol and select BM25, semantic or hybrid retrieval. |
+| `src/fusion.py` | Fuse rankings using weighted Reciprocal Rank Fusion. |
+| `src/hybrid_retriever.py` | Retrieve lexical and semantic candidates, then return fused sources. |
 | `src/prompting.py` | Construct sourced messages and select a prefix within the token budget. |
 | `src/generator.py` | Load Qwen, select a device and generate answer text. |
 | `src/datasets.py` | Orchestrate dataset search and answer generation. |
@@ -336,6 +338,58 @@ Evaluate the semantic documentation results separately:
 
 For code, replace both dataset filenames and use `--threshold 0.50`.
 
+### Optional CPU hybrid retrieval
+
+Hybrid retrieval combines BM25 and MiniLM rankings with weighted Reciprocal
+Rank Fusion (RRF), rather than adding their original, differently scaled scores:
+
+```text
+RRF(source) = lexical_weight / (C + lexical_rank)
+            + semantic_weight / (C + semantic_rank)
+```
+
+Ranks start at one. A method contributes zero when the source is absent from
+its ranking. Sources are identified by file path and both character bounds;
+duplicates within one method count once, at their first position. Ties use
+source path and bounds for deterministic ordering.
+
+The selected configuration in `src/retrieval.py` is:
+
+- `candidate_k=20` per method, expanded to at least the requested final k;
+- `rank_constant=0`;
+- `lexical_weight=0.65`, `semantic_weight=0.35`.
+
+The loader checks that lexical and semantic indexes contain the same original
+chunks before combining them. The two retrievers are loaded once and reused
+within a batch. Both run on CPU. These tuning settings are currently configured
+in Python, not exposed as CLI flags. BM25 remains the CLI default.
+
+With both indexes already built:
+
+```bash
+uv run python -m src search_dataset \
+  --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json \
+  --method hybrid \
+  --semantic_index_path data/processed/semantic_index.pt \
+  --save_directory data/output/experiments/hybrid/weighted_65_35/UnansweredQuestions \
+  --k 5
+
+./moulinette evaluate_student_search_results \
+  data/output/experiments/hybrid/weighted_65_35/UnansweredQuestions/dataset_docs_public.json \
+  data/datasets/AnsweredQuestions/dataset_docs_public.json \
+  --k 5 --max_context_length 2000 --threshold 0.80
+```
+
+For code questions, replace the dataset filename in both commands and use
+`--threshold 0.50`. Always evaluate the directory written by the current run;
+an older output file does not reflect new fusion settings.
+
+Single-query `search` also accepts `--method hybrid`. Saved hybrid source
+results use the existing JSON contract and can be passed to `answer_dataset`;
+use `--device cpu` for a CPU-only generation demonstration. Generation with
+hybrid sources remains to be checked; retrieval scores below do not establish
+answer correctness.
+
 ## Prompting and generation: design decisions
 
 Prompts contain system instructions, the question and numbered evidence blocks
@@ -422,10 +476,46 @@ with a 0.50 threshold, but the documentation requirement is 0.80: its measured
 Only five results per question were saved, so the displayed recall@10 adds
 no information beyond recall@5 for this experiment.
 
-These results motivate inspecting complementary successes and failures before
-implementing hybrid fusion. No hybrid gain has been measured or is guaranteed.
 The index and retrieval are functional on CPU; ranking quality and answer
-grounding remain separate evaluation concerns.
+grounding remain separate evaluation concerns. Hybrid experiments follow below.
+
+### Hybrid tuning results
+
+Experiments used the same 20 candidates per method, k=5 and the official
+moulinette on both public datasets. Candidate retrieval was reused so that
+only fusion parameters changed between configurations.
+
+| Rank constant C, equal weights | Docs Recall@5 | Code Recall@5 |
+| --- | ---: | ---: |
+| 0 | 83.00% | 62.63% |
+| 10 | 80.00% | 62.63% |
+| 30 | 80.00% | 60.61% |
+| 60 | 80.00% | 60.61% |
+| 100 | 80.00% | 60.61% |
+
+Holding C=0 and candidate count fixed:
+
+| BM25 / MiniLM weights | Docs Recall@5 | Code Recall@5 |
+| --- | ---: | ---: |
+| 50 / 50 | 83.00% | 62.63% |
+| **65 / 35, selected** | **83.00%** | **64.65%** |
+| 80 / 20 | 81.00% | 65.66% |
+| BM25 alone, reference | 81.00% | 66.67% |
+
+The selected hybrid configuration meets both mandatory recall thresholds.
+Relative to BM25, it improves documentation recall by 2 percentage points but
+reduces code recall by approximately 2.02 points. It improves code recall by
+2.02 points relative to equal-weight RRF at C=0 while retaining 83% on docs.
+BM25 remains the default: hybrid retrieval is not a universal improvement.
+Parameters were chosen using public development datasets, without an
+independent held-out evaluation; these gains may not generalize.
+
+Experiment summaries and raw evaluation logs are generated under
+`data/output/experiments/hybrid/rrf_sweep/` and
+`data/output/experiments/hybrid/weight_sweep_c0/`, ignored by Git.
+Identical recall values do not imply identical rankings. A dedicated full
+hybrid command latency/memory benchmark remains to be recorded; parameter
+sweep timings with reused candidates are not equivalent to fresh CLI runs.
 
 ### Answer quality and limitations
 
@@ -463,9 +553,9 @@ the 256-token output cap also limit reasoning and completeness.
   incorrect reasoning and weak citations that the retrieval moulinette does
   not evaluate.
 
-The mandatory lexical RAG pipeline and optional CPU semantic indexing/retrieval
-are implemented. Hybrid retrieval, incremental indexing, persistent query
-caching and a local HTTP API are not implemented. The remaining bonus work and
+The mandatory lexical RAG pipeline, optional CPU semantic indexing/retrieval
+and weighted hybrid retrieval are implemented. Incremental indexing,
+persistent query caching and a local HTTP API are not implemented. Remaining work and
 validation checklist are tracked in `bonus_rag.md`.
 
 ## Resources

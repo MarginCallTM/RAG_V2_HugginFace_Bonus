@@ -11,7 +11,7 @@ ne pas en déduire que le mandatory ou les modules récents restent à écrire.
 
 ### 1. Point d'arrêt exact et méthode de travail
 
-**Mise à jour de fin d'intégration CLI — 23 novembre 2026.** Ce bilan et la
+**Mise à jour après fusion hybride pondérée — 23 novembre 2026.** Ce bilan et la
 checklist « Intégration et validation du bonus » remplacent les indications
 historiques ci-dessous qui annoncent encore les tests ou la CLI à écrire.
 
@@ -20,14 +20,14 @@ historiques ci-dessous qui annoncent encore les tests ou la CLI à écrire.
 - [x] Ajouter `build_semantic_index()` dans `src/semantic_index.py`.
 - [x] Ajouter `SearchRetriever` (Protocol) et `load_retriever()` dans
   `src/retrieval.py` ; utiliser cette interface dans `search_questions()`.
-- [x] Exposer `index_semantic`, puis `--method bm25|semantic` et
+- [x] Exposer `index_semantic`, puis `--method bm25|semantic|hybrid` et
   `--semantic_index_path` dans `search` et `search_dataset`. BM25 reste le défaut.
   `answer` reste BM25 ; `answer_dataset` peut consommer un JSON de sources
   sémantiques, mais aucune génération complète sémantique n'a été attestée ici.
 - [x] Vérifier les tests dédiés : **26 passed** pour index + retriever
   (6 + 20), exécutés sans MiniLM. Flake8/mypy ciblés réussis lors des ajouts.
   L'élève rapporte ensuite **50 passed in 55.47s** pour datasets + CLI.
-  Aucun nouveau total de suite complète ni lint global final n'est revendiqué.
+  Ces résultats précèdent la validation globale indiquée ci-dessous.
 - [x] Construire l'index complet sur CPU : **16 736 chunks**, **980 lots**,
   batch_size=32, max_tokens=256 ; **306,22 s** au chronomètre interne de la
   commande, dont environ 4 min 57 s dans la barre d'encodage.
@@ -39,6 +39,7 @@ historiques ci-dessous qui annoncent encore les tests ou la CLI à écrire.
 |---|---:|---:|
 | BM25, baseline | 81,00 % | 66,67 % |
 | MiniLM, CPU, max par chunk | 66,00 % | 41,41 % |
+| Hybride retenu, C=0, BM25/MiniLM 65/35 | **83,00 %** | **64,65 %** |
 
 Sources sémantiques sauvegardées sous
 `data/output/experiments/semantic/full/UnansweredQuestions/` dans les deux
@@ -48,12 +49,67 @@ pas que le seuil docs de 0,80 est atteint. Le code échoue au seuil de 0,50.
 Ces résultats ne remplacent pas les scores mandatory BM25. L'égalité entre
 recall@5 et recall@10 s'explique par les cinq sources maximum sauvegardées.
 
-**Prochain incrément :** comparer les succès/échecs par question entre BM25
-et MiniLM, avec la même règle d'IoU et les mêmes références, pour mesurer
-leur complémentarité. Puis expliquer et tester RRF avant de coder le bonus 2.
-Ne pas promettre un gain hybride et ne pas additionner directement les scores
-BM25 et cosinus. Avant commit : relancer le lint global après les dernières
-modifications ; le commit et le push restent effectués par l'élève.
+### État courant du bonus 2 : hybride pondéré
+
+- `src/fusion.py` : RRF sur des listes de `ScoredChunk`, déduplication par
+  chemin/bornes, une contribution par source et par méthode, égalités résolues
+  par chemin puis bornes. Poids positifs finis facultatifs ; défaut 1 par liste.
+- `src/hybrid_retriever.py` : deux retrievers réutilisés, jusqu'à
+  `max(k, candidate_k)` candidats demandés à chacun, puis top-k fusionné.
+  Le chargement par `src/retrieval.py` refuse des index lexical/sémantique
+  contenant des listes de chunks différentes.
+- Choix confirmé par l'élève : **candidate_k=20, rank_constant=0,
+  lexical_weight=0.65, semantic_weight=0.35, k final=5** pour les évaluations.
+  Ces paramètres sont fixés dans la branche hybride de `load_retriever()` ;
+  ils ne sont pas encore exposés comme options CLI.
+- `tests/test_fusion.py` : 20 cas ; `tests/test_hybrid_retriever.py` : 24 cas.
+  Les **44 tests passent**, ainsi que flake8/mypy ciblés sur les trois modules.
+  Vérifications supplémentaires exécutées sur exemples artificiels pour la
+  propagation des poids non égaux et leur arithmétique ; leur couverture
+  persistante dans pytest reste à compléter.
+- Recherche hybride réelle validée via `search`, puis datasets complets sur CPU.
+  La génération Qwen avec ces sources n'a pas encore été vérifiée.
+- Vérification globale après intégration pondérée : **285 tests réussis en
+  68,28 s**, flake8 réussi sur le projet, mypy réussi sur **77 fichiers** avec
+  les flags mandatory. Aucun commit ni push effectué par l'assistant.
+
+Expériences à candidats identiques (20 par méthode), moulinette officielle,
+sources <=2000 caractères et k final=5 :
+
+| Constante C, poids égaux | Docs recall@5 | Code recall@5 |
+|---|---:|---:|
+| 0 | 83,00 % | 62,63 % |
+| 10 | 80,00 % | 62,63 % |
+| 30 | 80,00 % | 60,61 % |
+| 60 | 80,00 % | 60,61 % |
+| 100 | 80,00 % | 60,61 % |
+
+| Poids BM25/MiniLM, C=0 | Docs recall@5 | Code recall@5 |
+|---|---:|---:|
+| 50/50 | 83,00 % | 62,63 % |
+| **65/35 retenu** | **83,00 %** | **64,65 %** |
+| 80/20 | 81,00 % | 65,66 % |
+
+Les deux seuils mandatory sont atteints par le réglage hybride retenu. Il
+gagne 2 points docs sur BM25 mais perd 2,02 points code ; ne pas annoncer un
+gain sur tous les jeux. Les réglages sont choisis sur les datasets publics,
+pas validés sur un jeu indépendant. BM25 reste le défaut.
+
+Artefacts ignorés par Git :
+- `data/output/experiments/hybrid/rrf_sweep/summary.json` : constantes testées.
+- `data/output/experiments/hybrid/weight_sweep_c0/summary.json` : poids testés.
+- Résultats retenus :
+  `data/output/experiments/hybrid/weight_sweep_c0/w65_35/UnansweredQuestions/`.
+- Les logs `.evaluation.txt` sont à côté des JSON ; les candidats par méthode
+  sont conservés sous `weight_sweep_c0/candidates/`.
+
+**Prochain incrément :** clôturer la validation hybride par un petit batch
+Qwen forcé sur CPU et quelques tests des poids/du chargement de méthode.
+Puis commencer le bonus 3 : manifeste des fichiers et détection des changements
+avant toute réindexation incrémentale. La comparaison exhaustive des succès
+par question a été reportée au choix de l'élève, elle n'est pas un préalable
+imposé par le sujet. Ne pas poursuivre une recherche illimitée de paramètres.
+Le commit et le push restent effectués par l'élève.
 
 **Historique antérieur à cette mise à jour** (les sections 2 à 7 suivantes
 décrivent également la reprise initiale, pas l'état de fin d'intégration) :
@@ -603,21 +659,30 @@ n'est pas garantie par l'ajout d'embeddings.
 
 **Exigé :** combiner les classements lexical et sémantique en un classement unique.
 
-- [ ] Observer les passages retrouvés exclusivement par chaque méthode.
-- [ ] Choisir une fusion initiale simple, par exemple Reciprocal Rank Fusion
+- [ ] Facultatif : observer les passages retrouvés exclusivement par chaque
+      méthode (diagnostic reporté ; pas une exigence supplémentaire du sujet).
+- [x] Choisir une fusion initiale simple, par exemple Reciprocal Rank Fusion
       (RRF), afin de combiner des rangs sans comparer directement des scores
       BM25 et cosinus dont les échelles diffèrent.
-- [ ] Définir le nombre de candidats de chaque méthode, distinct du k final.
-- [ ] Dédupliquer par identité de source : chemin et deux bornes de caractères.
-- [ ] Fixer un ordre déterministe en cas d'égalité et retourner au plus k sources.
-- [ ] Exposer le mode hybride et les paramètres utiles sans casser la CLI obligatoire.
-- [ ] Tester la fusion sur des listes contrôlées : source commune, source unique,
+- [x] Définir le nombre de candidats de chaque méthode, distinct du k final.
+- [x] Dédupliquer par identité de source : chemin et deux bornes de caractères.
+- [x] Fixer un ordre déterministe en cas d'égalité et retourner au plus k sources.
+- [x] Exposer le mode hybride sans casser la CLI obligatoire (BM25 par défaut).
+- [ ] Facultatif : exposer candidats, constante et poids comme options CLI ;
+      ils sont actuellement configurés dans `src/retrieval.py`.
+- [x] Tester la fusion sur des listes contrôlées : source commune, source unique,
       classement vide, égalité, k=0 et grand k.
 - [ ] Brancher les sources fusionnées sur le prompt et le générateur existants.
-- [ ] Comparer BM25, sémantique et hybride sur les mêmes datasets à recall@5.
+- [x] Comparer BM25, sémantique et hybride sur les mêmes datasets à recall@5.
+- [x] Comparer les constantes et poids sur des candidats identiques ; retenir
+      C=0 et BM25/MiniLM 65/35 sans revendiquer de généralisation hors public.
+- [ ] Ajouter des tests pytest persistants pour les poids et leur validation,
+      ainsi que le choix hybride et la cohérence des index via le chargeur.
 - [ ] Vérifier quelques réponses et la gestion du budget avec les sources hybrides.
-- [ ] Documenter le compromis temps/qualité et éviter d'ajuster aux seuls cinq
-      exemples déjà analysés.
+- [x] Documenter les scores et limites dans le README, sur les datasets complets.
+- [ ] Compléter un benchmark hybride dédié : temps total de recherche et mémoire.
+      Les balayages de paramètres avec candidats réutilisés ne remplacent pas
+      un chronométrage de la commande complète.
 
 Validation : les deux classements contribuent réellement à une recherche
 hybride CPU, avec des résultats dédupliqués et évalués.
@@ -725,5 +790,5 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochain incrément : comparer les succès/échecs BM25 et MiniLM par question,
-puis préparer la fusion RRF du bonus hybride. Voir le bilan actuel en tête.
+Prochain incrément : petit batch Qwen CPU avec sources hybrides et tests
+ciblés restants, puis manifeste et détection des changements (bonus 3).

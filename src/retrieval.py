@@ -31,4 +31,28 @@ def load_retriever(
 
         return SemanticRetriever(semantic_index_path)
 
-    raise ValueError("Method must be bm25 or semantic")
+    if method == "hybrid":
+        from src.hybrid_retriever import HybridRetriever
+        from src.indexer import load_index
+        from src.retriever import Retriever
+        from src.semantic_retriever import SemanticRetriever
+
+        index = load_index(processed_dir)
+        semantic = SemanticRetriever(semantic_index_path)
+
+        if index.chunks != semantic.data.chunks:
+            raise ValueError(
+                "Hybrid retrieval requires matching lexical "
+                "and semantic corpus chunks"
+            )
+
+        return HybridRetriever(
+            lexical=Retriever(index),
+            semantic=semantic,
+            candidate_k=20,
+            rank_constant=0,
+            lexical_weight=0.65,
+            semantic_weight=0.35,
+        )
+
+    raise ValueError("Method must be bm25 or semantic or hybrid")
