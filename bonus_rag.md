@@ -1,5 +1,356 @@
 # Plan des bonus — RAG against the machine
 
+## Reprise prioritaire sur Lenovo Ubuntu — 23 novembre 2026
+
+**Lire cette section en premier : elle remplace les anciennes indications de
+prochaine étape lorsqu'elles la contredisent.** Ce document sert de contexte
+de reprise pour Codex sur la machine de 42. Le sujet officiel `subject.pdf`
+version 2.0 et `tutor_agent_RAG_42.md` restent les références à lire.
+`REPRISE_TUTEUR_LENOVO.md` date du 13 novembre et décrit un état bien antérieur :
+ne pas en déduire que le mandatory ou les modules récents restent à écrire.
+
+### 1. Point d'arrêt exact et méthode de travail
+
+- Le mandatory BM25/Qwen est implémenté. Le travail actuel porte sur le
+  **bonus 1, recherche sémantique**, pas encore sur la recherche hybride.
+- Développement récent et essais effectués sur le **MacBook M2**, en CPU
+  float32. Le retour sur Lenovo Ubuntu commence aujourd'hui ; aucune nouvelle
+  validation de ces bonus sur Lenovo n'est encore attestée.
+- Nous venons de créer `src/semantic_retriever.py` et d'exécuter
+  `notes/bonus/bonus_explore_semantic_retriever.py` sur un index de **trois
+  chunks / six segments**. Le bon fichier arrive premier pour une question
+  sur la taille maximale des wheels. Il n'y a encore **aucun recall sémantique
+  docs/code**, ni indexation vectorielle du corpus complet, ni méthode
+  sémantique accessible dans la CLI mandatory.
+- **Prochaine séance :** vérifier la copie et l'environnement Lenovo,
+  reproduire le petit exemple, corriger son affichage de bornes, consolider
+  la compréhension du regroupement par chunk, puis écrire les tests du
+  retriever sémantique sans charger MiniLM. Ensuite seulement : branchement
+  datasets/CLI, préparation de l'index complet et mesures.
+- Dernière question pédagogique non encore répondue : « Si le chunk 0 possède
+  trois segments, pourquoi n'apparaît-il qu'une seule fois dans les résultats ? »
+  Réponse à faire expliquer par l'élève : maximum des scores par identité de
+  chunk, puis un seul `ScoredChunk` par chunk dans le classement final.
+- Dernier commit local observé lors de cette relecture : `4c5b258`,
+  `add semantic retriever to the codebase`. Précédents : `b15db22` (encodage et
+  persistance), `ed2cf1e` (configuration et segmentation). Vérifier le HEAD réel
+  sur Lenovo ; cette lecture ne prouve pas l'état distant ni la synchronisation.
+
+**Préférences explicites de l'élève :** agir comme un professeur particulier,
+en français ; expliquer la théorie et les nouvelles syntaxes **avant** le
+code. Donner le chemin exact, un petit bloc à recopier, une commande et le
+résultat attendu ; attendre sa sortie et l'analyser. L'élève tape le code
+lui-même. Ne modifier directement un fichier que sur demande explicite
+(une demande de mise à jour de ce document autorise ce document seulement).
+Il a demandé d'intégrer dans l'ordre du parcours des données, et non de
+commencer par la fonction de classement finale. Ne pas réécrire le projet
+d'un bloc, ne pas ajouter d'agents/frameworks/services sans besoin.
+Ne pas commit/push ou changer de branche sans demande. Expliquer toute
+installation ou téléchargement volumineux avant de le lancer.
+
+### 2. Architecture réelle à connaître
+
+```text
+Mandatory existant
+Fichiers vLLM → ingest/chunking → ChunkIndex → chunks.json
+Question → tokenizer lexical → Retriever BM25 → ScoredChunk → sources JSON
+Sources → prompt borné avec tokenizer Qwen → Generator → réponse JSON
+
+Bonus sémantique actuellement intégré, sur échantillon
+ChunkIndex.chunks → SemanticEncoder.segment_chunks()
+                 → liste ordonnée de TokenSegment
+                 → encode_segments() par lots sur CPU
+                 → vecteurs normalisés, une ligne par segment
+Métadonnées + chunks + segments → SemanticIndexData
+SemanticIndexData + vecteurs → validation → save_semantic_index()
+                            → semantic_index.pt
+
+SemanticRetriever(path) → load_semantic_index() + encodeur configuré
+search(question, k) → encode_query() → (1, 384)
+                    → produit matriciel avec tous les segments
+                    → maximum des scores par chunk
+                    → tri décroissant, top-k, list[ScoredChunk]
+```
+
+| Fichier | État et rôle exact |
+|---|---|
+| `src/models.py` | Contrats mandatory et `Chunk`, `ChunkIndex`, `ScoredChunk`. Un chunk conserve le texte et les bornes exactes ; `ScoredChunk` sert maintenant aux deux retrievers malgré sa docstring encore lexicale. |
+| `src/ingest.py`, `src/chunking.py` | Lecture UTF-8 avec normalisation des fins de ligne, chemins relatifs ; Python par AST et replis, Markdown par sections/paragraphes, texte par paragraphes. Chunks de 2 000 caractères maximum via le pipeline. |
+| `src/indexer.py` | `build_index()`, `save_index()`, `load_index()` pour le mandatory ; persiste `data/processed/chunks.json`, sans statistiques BM25 ni vecteurs. |
+| `src/embeddings.py` | `EmbeddingConfig`, `TokenSegment`, `SemanticEncoder` ; chargement CPU, segmentation, encodage par lots, méthode commune `_encode_batch()` et `encode_query()`. |
+| `src/semantic_index.py` | **Orthographe actuelle : `SemanticIndexMetaData`**, puis `SemanticIndexData`, `validate_embeddings()`, `save_semantic_index()`, `load_semantic_index()`. Ne pas inventer un fichier par classe. |
+| `src/semantic_retriever.py` | `SemanticRetriever(index_path: Path)` ; `search(query: str, k: int = 5) -> list[ScoredChunk]`. Charge l'index et l'encodeur une fois par instance ; réutilisable sur un dataset. |
+| `src/retriever.py` | Retriever BM25 inchangé, indépendant du sémantique. Paramètres k1=1.5, b=0.75 ; ne retourne que les scores strictement positifs. |
+| `src/datasets.py` | `search_questions()` réutilise un retriever par batch mais l'annote encore comme `Retriever` BM25 ; aucune abstraction commune ni branchement sémantique ajouté. `save_search_results()` fournit le JSON mandatory. |
+| `src/cli.py` | `index`, `search`, `search_dataset`, `answer`, `answer_dataset`, `evaluate` ; utilise toujours BM25. **Aucune option `--method` ni commande de construction de l'index sémantique n'existe actuellement.** |
+| `src/evaluation.py` | Recall par question puis moyenne ; mêmes chemins et IoU strictement supérieure à 0,05 dans le code local ; moulinette exécutée à part, jamais importée ni appelée par l'application. |
+| `src/prompting.py`, `src/generator.py` | Génération Qwen3-0.6B existante, budget applicatif par défaut 4096 avec 256 nouveaux tokens ; sources effectivement incluses conservées. Qwen n'est pas utilisé par le script de recherche sémantique. |
+
+### 3. Choix techniques et invariants déjà compris/exercés
+
+- Modèle : `sentence-transformers/all-MiniLM-L6-v2`, licence Apache-2.0 selon
+  la fiche consultée ; révision par défaut **`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`**
+  pour le tokenizer et les poids. Ce commit est une version Hugging Face,
+  **pas un chemin Mac**. Les poids doivent exister ou être téléchargés sur Lenovo.
+- Bibliothèques : Transformers 4.x et PyTorch déjà déclarés ; pas de nouvelle
+  dépendance Sentence Transformers, FAISS, base vectorielle ou service cloud.
+- `EmbeddingConfig` : modèle et révision, `max_tokens=256` (3..256),
+  `batch_size=32` (>=1). Les expériences sur trois chunks choisissent 2.
+- La capacité architecturale de MiniLM est 512 positions ; **256 est notre
+  budget initial d'encodage**, cohérent avec l'usage étudié, pas une limite
+  générale des LLM ni le budget Qwen. Deux tokens spéciaux → 254 tokens de
+  contenu par segment. 2 000 caractères ne garantissent pas 256 tokens.
+- Le découpage est guidé par les tokens, pas une détection de frontières de
+  sens. `return_overflowing_tokens=True`, `stride=0`, pas de chevauchement ;
+  chaque segment contient ses tokens spéciaux. Aucun contenu tokenisé n'est
+  volontairement jeté à la fin comme avec une troncature simple.
+- `TokenSegment` : `chunk_position`, `segment_position`, `input_ids`.
+  Une ligne du tenseur correspond au même indice dans la liste des segments.
+  Les indices sont relatifs à la liste de chunks enregistrée avec cet index.
+- Pas de bornes de caractères propres aux segments : ceux-ci servent à la
+  recherche ; **la source retournée est le chunk original entier**, <=2000
+  caractères. Plusieurs segments du même chunk ont donc la même provenance
+  affichée. Ne pas reconstruire les sources par `decode()` des tokens.
+- Pooling : `last_hidden_state` → masque étendu avec `unsqueeze(-1)` → somme
+  des vecteurs utiles / nombre de positions utiles ; `[CLS]` et `[SEP]`
+  comptent, `[PAD]` non. Les espaces/tabulations ne sont pas ce padding.
+- Normalisation L2 après pooling, `p=2, dim=1`. Un vecteur par segment existe
+  **avant** normalisation ; celle-ci ajuste sa norme, pas le nombre de vecteurs.
+  Coordonnées éventuellement négatives ; norme proche de 1 ; pas de probabilités.
+- Encodage par lots : nombre de segments par appel au modèle, distinct du
+  budget de tokens et du top-k. `_encode_batch()` effectue le calcul commun
+  aux segments et questions. `batch_segments`, et non tous les segments, doit
+  fournir les tokens de chaque tour. Tous les vecteurs finaux restent en RAM.
+- Question : `encode_query()` rejette les espaces seuls et un texte dépassant
+  le budget, sans troncature silencieuse ; retourne `(1, 384)`.
+  Mesure faite sur les datasets publics Mac : maximum 58 tokens docs, 40 code,
+  tokens spéciaux compris ; aucune des 199 questions ne dépasse 256. Pas une
+  garantie sur de futures questions. `search()` retourne `[]` pour question
+  vide/espaces seuls ou k=0 avant d'appeler l'encodeur.
+- Recherche exacte : `(1, 384) @ (S, 384).T` donne `(1, S)` ; produit scalaire
+  égal au cosinus car vecteurs normalisés. `S` = nombre de segments, pas de chunks.
+- `search()` refuse k négatif ou non entier ; score non fini refusé ; conserve
+  le maximum par chunk, trie par `(-score, chunk_position)` et retourne au plus
+  k chunks uniques. Pas de seuil sémantique : un passage hors sujet peut être
+  retourné s'il est parmi les meilleurs disponibles, même avec score négatif.
+- Ce maximum par chunk **n'est pas** le bonus hybride. L'hybride combinera
+  plus tard les classements BM25 et sémantique, par exemple via RRF. Un gain
+  de recall@5 est une hypothèse à mesurer, pas une conséquence garantie.
+
+### 4. Persistance, résultats observés et limites des preuves
+
+`SemanticIndexMetaData` contient versions de format/préparation (1),
+`encoder_config`, dimension, nombres de chunks/segments, `masked_mean`,
+`l2` (**lettre L**, pas le nombre 12), `token_windows_no_overlap`, `float32`.
+`SemanticIndexData` valide compteurs, indices de chunks, budget, numérotation
+successive des segments et présence d'au moins un segment par chunk.
+
+`validate_embeddings()` vérifie forme `(segment_count, dimension)`, CPU,
+float32, valeurs finies et normes proches de 1 avec `rtol=1e-4`, `atol=1e-5`.
+Ces contrôles ne prouvent pas l'identité sémantique des lignes : un échange
+de deux vecteurs normalisés peut les passer. Préserver l'ordre et le tester.
+
+Le fichier `.pt` contient `{"data": data.model_dump(mode="json"),
+"embeddings": tensor}`. `mode="json"` prépare des types simples, il n'écrit
+pas un fichier JSON. Écriture dans `.tmp`, puis remplacement du fichier final
+(hypothèse d'un seul écrivain par destination). Chargement local de confiance
+avec `map_location="cpu", weights_only=True`, reconstruction Pydantic et
+revalidation du tenseur. Chemins fournis en `Path`, sans dépendance à `/Users/…`.
+
+Échantillon réel sauvegardé sur Mac sous
+`data/output/experiments/semantic/sample/semantic_index.pt` : **17 775 octets**,
+3 chunks, 6 segments, `(6, 384)`, CPU float32, normes proches de 1. Aller-retour :
+`Same index data: True`, `Same vectors: True`. Ce fichier est ignoré par Git.
+
+| Chunk d'essai | Source originale | Segments, positions avant padding |
+|---|---|---|
+| 0 | `data/raw/vllm-0.10.1/.buildkite/check-wheel-size.py [0:1998]` | 256, 256, 109 |
+| 1 | `data/raw/vllm-0.10.1/.buildkite/generate_index.py [0:718]` | 256, 6 |
+| 2 | `data/raw/vllm-0.10.1/.buildkite/lm-eval-harness/configs/models-large.txt [0:192]` | 104 |
+
+Dernière recherche réelle fournie par l'élève :
+`Which environment variable sets the maximum allowed wheel size?`, k=3.
+Scores maximums par chunk : `check-wheel-size.py` **0,4566**,
+`generate_index.py` **0,1634**, `models-large.txt` **0,0358**.
+Ces chiffres décrivent une question sur trois chunks, pas un recall, une
+probabilité de vérité, une réponse générée ou un benchmark du corpus.
+
+**Petite erreur encore présente dans le dépôt relu le 23 novembre :**
+`notes/bonus/bonus_explore_semantic_retriever.py` imprime deux fois
+`chunk.first_character_index`, ce qui affiche `[0:0]`. Le dernier f-string
+doit utiliser `chunk.last_character_index`. Correction expliquée mais non
+appliquée dans la copie inspectée. Les sources des objets ne sont pas `[0:0]` ;
+c'est l'affichage qui est incorrect. La corriger avec l'élève avant la démo.
+
+Dernières sorties de vérification **transmises par l'élève sur Mac** :
+
+```text
+uv run python -m pytest tests/test_semantic_index.py -q
+4 passed in 2.34s
+
+make lint
+Success: no issues found in 71 source files
+```
+
+Les quatre tests couvrent vecteurs valides, vecteur nul, compteur de segments
+incohérent et aller-retour avec deux vecteurs artificiels de dimension 2.
+Ils ne chargent pas MiniLM et n'évaluent pas la pertinence. **Aucun fichier
+`tests/test_semantic_retriever.py` ni test dédié de l'encodeur n'existe encore.**
+Ne pas annoncer une suite complète verte ou un nombre total obtenu par addition
+à l'ancienne baseline. La mise à jour documentaire du 23 novembre a relu le
+code et le chapitre IX ; elle n'a relancé ni tests, ni modèles, ni benchmarks.
+
+Le conseil `BertTokenizerFast` sur l'appel séparé à `pad()` n'est pas une erreur.
+Ce découpage explicite a été choisi pour comprendre les opérations et réutiliser
+les tokens déjà segmentés ; ne pas masquer les erreurs réelles avec ce message.
+
+### 5. Reproduction sur Lenovo avant de poursuivre
+
+**Exécuter depuis la racine réelle du clone**, pas depuis `notes/bonus/`.
+Ne pas recopier l'environnement virtuel du Mac ni ses chemins absolus.
+
+```bash
+pwd
+git status --short
+git log -3 --oneline
+python3 --version
+uv --version
+uname -m
+free -h
+df -h .
+```
+
+Le projet déclare Python `>=3.12,<3.13`. `pyproject.toml` conditionne l'index
+PyTorch CUDA 13.0 à Linux/Windows et utilise l'index par défaut sur Mac.
+**Une distribution PyTorch CUDA peut exécuter ces modules sur CPU** :
+`SemanticEncoder` force explicitement CPU/float32. Ne pas supposer un GPU
+présent ou nécessaire. L'installation Linux peut être volumineuse ; vérifier
+place et accès réseau, expliquer les téléchargements et diagnostiquer une
+éventuelle incompatibilité avant de changer les dépendances. Aucun backend
+MPS n'est utilisé. Ne pas modifier le lockfile simplement à cause du transfert.
+
+```bash
+uv sync --locked
+uv run python --version
+uv run python -m pytest tests/test_semantic_index.py -q
+make lint
+```
+
+Le sujet attend `uv sync` ; `--locked` sert ici à vérifier le lockfile transféré.
+Les commandes précédentes ne prouvent leur réussite qu'après lecture des sorties.
+`notes/__init__.py` et `notes/bonus/__init__.py` sont présents pour éviter
+l'erreur mypy de double nom de module ; les conserver.
+
+**Données absentes d'un clone Git :** `.gitignore` exclut corpus, datasets,
+index, vecteurs, résultats et archives jointes. Sur Mac, leur restauration et
+la concordance des 16 736 chunks avaient été vérifiées ; ne pas supposer leur
+présence sur Lenovo. Vérifier avant toute extraction ou reconstruction :
+
+```bash
+ls data/raw/vllm-0.10.1/docs/features/lora.md
+ls data/datasets/UnansweredQuestions/dataset_docs_public.json
+ls data/datasets/UnansweredQuestions/dataset_code_public.json
+ls data/datasets/AnsweredQuestions/dataset_docs_public.json
+ls data/datasets/AnsweredQuestions/dataset_code_public.json
+ls data/processed/chunks.json
+```
+
+Restaurer au besoin les pièces jointes fournies, dans l'arborescence du README,
+en évitant le niveau intermédiaire `datasets_public/public/`. Garder **vLLM
+0.10.1 fourni**, pas un clone récent : les sources attendues dépendent du texte
+et du préfixe exact `data/raw/vllm-0.10.1/`. Pas de corpus ni de vecteurs à committer.
+Les binaires de la moulinette sont fournis séparément pour Linux.
+
+Si `chunks.json` manque, sa reconstruction mandatory est disponible :
+
+```bash
+uv run python -m src index --max_chunk_size 2000
+```
+
+Cette commande remplace l'index de chunks ; elle ne construit **pas** l'index
+vectoriel. L'expliquer avant de remplacer un artefact local existant.
+
+Après vérification des données et de la disponibilité de MiniLM, reproduire :
+
+```bash
+uv run python -m notes.bonus.bonus_explore_chunk_segments
+uv run python -m notes.bonus.bonus_explore_query
+uv run python -m notes.bonus.bonus_explore_semantic_retriever
+```
+
+La première commande réencode seulement les **trois premiers chunks** et
+remplace le petit index sémantique d'essai ; les suivantes le rechargent sans
+réencoder les chunks. Le modèle peut être téléchargé au premier usage sur
+Lenovo (~90 Mo de poids, plus tokenizer/configuration), indépendamment du
+cache Mac. Vérifier les conditions avec l'élève avant ce téléchargement.
+Les scores peuvent légèrement varier avec matériel/bibliothèques ; les
+associations, dimensions et normes doivent rester cohérentes.
+
+Anciens prototypes `bonus_explore_encoder.py` / `bonus_explore_search.py` :
+ils sauvegardent/rechargent des phrases sous `semantic/persistence/demo_index.pt`.
+**Ne pas confondre cet ancien format de démonstration avec le format actuel**
+`SemanticIndexData` sous `semantic/sample/semantic_index.pt`.
+
+### 6. Ordre concret du travail restant
+
+1. **Reprise Lenovo et compréhension :** étapes ci-dessus, correction du seul
+   affichage `[0:0]`, puis question de compréhension sur maximum par chunk.
+2. **Tests déterministes du retriever**, avant extension du périmètre : index
+   artificiel via les fonctions de persistance, encodeur simulé au point
+   `src.semantic_retriever.SemanticEncoder` pour éviter tout téléchargement.
+   Vérifier calcul/classement, max par chunk, absence de doublons, provenance,
+   égalités déterministes, scores négatifs, k=0/grand k/invalide, question vide,
+   index vide, dimension incompatible et propagation d'une question trop longue.
+   Ne pas tester seulement un tri de scores sans leurs sources.
+3. **Compléter les tests ciblés encodeur/index** : segmentation et ordre sans
+   vrai modèle lorsque possible, pooling masqué, lots et dernière tranche,
+   questions vides/trop longues ; forme/dtype/NaN/inf, références invalides et
+   mauvais fichiers à la lecture. Tester d'abord les risques réels, pas chaque
+   ligne isolément. Les quatre tests existants sont un début, pas cette couverture.
+4. **Comparer BM25 et sémantique sur un même petit corpus** ; examiner leurs
+   complémentarités avant la fusion. Toujours distinguer score et preuve.
+5. **Intégrer l'orchestration** dans l'ordre des données : préparation de
+   l'index sémantique à partir du `ChunkIndex` complet (actuellement assemblée
+   seulement par le script d'essai), chemins et paramètres configurables,
+   réutilisation d'un retriever par batch. Choisir une interface commune légère
+   pour `search_questions()` (ex. `Protocol` ou union adaptée), expliquer le
+   choix puis préserver les contrats JSON. Ne pas ignorer les erreurs mypy.
+6. **Brancher la CLI** : BM25 par défaut, option sémantique explicite,
+   construction/rechargement de l'index, erreurs attendues traduites en `CliError`.
+   Les options nouvelles ne sont pas encore définies : lire les signatures
+   réelles et les concevoir avec l'élève, ne pas annoncer des commandes fictives.
+   Même contrat de `ScoredChunk`/`MinimalSource`, sources <=2000 caractères.
+7. **Construire l'index vectoriel complet et mesurer sur CPU** : nombre de
+   segments, proportion de chunks dépassant 256 tokens, temps, taille et mémoire.
+   Ne pas extrapoler les ~8–14 lots/s observés sur des exemples de quelques lots.
+   Fixer une taille de lot mesurée ; la progression de segmentation du corpus
+   reste à prévoir (actuellement seule la boucle d'encodage affiche tqdm).
+8. **Évaluer docs et code à k=5** : mêmes datasets, mêmes chemins et mêmes
+   références que BM25, sorties isolées par méthode/scope ; moulinette exécutée
+   manuellement. Vérifier ensuite les sources réellement retenues par le prompt
+   et une petite génération Qwen sur CPU, sans relancer inutilement 199 réponses.
+9. **Bonus 2 hybride** : candidats BM25 + candidats sémantiques → fusion des
+   rangs (RRF à expliquer/expérimenter), déduplication par chemin et bornes,
+   top-k final, mêmes évaluations et tests. Ne pas additionner naïvement les
+   scores d'échelles différentes. 81 % docs est la baseline BM25 historique,
+   pas un résultat hybride ; l'hybride peut gagner ou perdre du recall@5.
+10. **Bonus 3, 4 et 5** : indexation incrémentale, cache d'index ET de requêtes,
+    API HTTP locale. Leurs checklists détaillées restent ci-dessous ; aucune
+    de ces trois fonctionnalités n'est implémentée. La persistance actuelle
+    ne valide pas à elle seule le bonus cache, ni la présence de MiniLM le
+    bonus hybride. Puis documentation anglaise et validation finale sur Lenovo.
+
+### 7. Proposition de message de reprise au tuteur Lenovo
+
+« Lis `tutor_agent_RAG_42.md`, le sujet et la section de reprise du 23 novembre
+dans `bonus_rag.md`, puis vérifie la copie réelle. Nous avons déjà intégré
+l'encodeur CPU, la segmentation, l'index persistant validé et le retriever
+sémantique sur trois chunks. Ne réimplémente pas ces étapes. Reproduisons
+d'abord l'environnement et la petite démo sur Lenovo, corrigeons l'affichage
+des bornes encore fautif, puis écrivons les tests du retriever avec un encodeur
+simulé. Explique les notions avant le code ; je recopie moi-même les petits
+incréments. Pas d'indexation vectorielle complète ni d'hybride encore mesurés. »
+
 ## Contrat et état de départ
 
 Référence : `subject.pdf`, chapitre IX. Les cinq bonus valent chacun un point
@@ -116,7 +467,10 @@ masque et broadcasting, dimensions des scores, lots versus top-k, association
 passage ↔ vecteur. Le pooling regroupe les représentations ; la normalisation
 ajuste la norme. Les questions de compréhension ont été reprises sur ces points.
 
-### Point de reprise — 20 novembre 2026
+### Point de reprise historique — 20 novembre 2026
+
+État intermédiaire conservé ; la reprise du 23 novembre en tête du document
+décrit les ajouts suivants et la prochaine mission actuelle.
 
 Intégration effectuée progressivement par l'élève dans `src/`, dans l'ordre
 des données. État vérifié par lecture du code ; résultats d'exécution transmis
@@ -130,7 +484,8 @@ par l'élève, sauf les contrôles du corpus explicitement indiqués ci-dessous.
       de 1 717 caractères et 292 tokens ; récupération par deux segments de
       256 et 38 positions, tokens spéciaux compris.
 - [x] Explorer le score maximal par passage à partir des scores des segments,
-      sans doublonner le passage. Cette fusion n'est pas encore dans `src/`.
+      sans doublonner le passage. D'abord exploré dans `notes/`, ce regroupement
+      a ensuite été intégré dans `src/semantic_retriever.py` (voir reprise actuelle).
 - [x] Créer `EmbeddingConfig`, `TokenSegment` et `SemanticEncoder` dans
       `src/embeddings.py` : CPU float32, tokenizer fast, segmentation sans
       chevauchement, encodage par lots, pooling masqué et normalisation L2.
@@ -153,9 +508,9 @@ par l'élève, sauf les contrôles du corpus explicitement indiqués ci-dessous.
       incohérent et persistance. Quatre tests et `make lint` rapportés réussis
       par l'élève ; pas de nouvelle exécution de toute la suite attestée ici.
 
-À poursuivre dans cet ordre : encodage des questions dans `src/`, retriever
-sémantique et regroupement par chunk, comparaison avec BM25, branchement CLI
-et datasets, indexation complète et mesures, puis validation Lenovo CPU.
+À cette date intermédiaire, l'encodage des questions et le retriever restaient
+à intégrer ; ils sont maintenant présents. Comparaison BM25, branchement CLI
+et datasets, indexation complète et mesures restent à faire.
 L'index d'essai ne couvre que trois chunks : aucun recall sémantique, gain
 hybride ni performance du corpus complet n'est encore mesuré.
 
@@ -169,17 +524,21 @@ hybride ni performance du corpus complet n'est encore mesuré.
 - [x] Définir et documenter la politique initiale pour les passages trop longs :
       fenêtres sans chevauchement, 256 positions dont deux tokens spéciaux,
       plusieurs vecteurs associés au chunk original. Score maximal par chunk
-      prévu pour la recherche, encore à intégrer et à évaluer sur le corpus.
+      intégré au retriever ; encore à tester systématiquement et à évaluer
+      sur le corpus complet.
 - [ ] Ajouter uniquement les dépendances retenues avec uv et mettre à jour le lockfile.
 - [x] Définir les métadonnées de l'index : modèle/révision, paramètres, version
       de préparation des textes, dimension et association vecteur ↔ chunk.
 - [x] Encoder les segments des chunks par lots sur CPU avec une progression tqdm
       (intégration vérifiée sur trois chunks ; corpus complet à mesurer).
 - [x] Normaliser les vecteurs pour utiliser une similarité cosinus cohérente.
-- [ ] Commencer par une recherche matricielle exacte ; mesurer avant d'ajouter
-      une bibliothèque d'index vectoriel plus complexe.
+- [x] Commencer par une recherche matricielle exacte, implémentée sur l'index
+      d'essai ; mesures du corpus complet encore à faire avant toute décision
+      d'ajout d'une bibliothèque vectorielle plus complexe.
 - [x] Persister vecteurs et métadonnées sous un chemin configurable ignoré par Git.
-- [ ] Implémenter une recherche sémantique avec le même contrat de sources que BM25.
+- [x] Implémenter une recherche sémantique retournant `list[ScoredChunk]` avec
+      les sources originales, comme BM25 ; exemple réel exécuté sur trois chunks.
+      Branchement CLI/datasets et tests dédiés du retriever encore à faire.
 - [ ] Ajouter un choix de méthode à la CLI en conservant BM25 par défaut.
 - [ ] Tester sans téléchargement : dimensions, ordre, k=0, grand k, index vide,
       association des sources, score et persistance avec encodeur simulé.
@@ -317,5 +676,5 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochain incrément : encoder une question avec le modèle et la configuration
-de l'index sauvegardé, puis construire la recherche sémantique sourcée.
+Prochain incrément : suivre la reprise Lenovo du 23 novembre en tête du document,
+reproduire l'échantillon, corriger son affichage et tester le retriever sémantique.
