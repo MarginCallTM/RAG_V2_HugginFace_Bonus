@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field, model_validator
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
 from src.ingest import list_corpus_files, read_text, to_corpus_path
 
@@ -16,7 +17,9 @@ class FileFingerprint(BaseModel):
 
 class CorpusManifest(BaseModel):
     """Store corpus file fingerprints with unique source paths."""
-
+    format_version: Literal[1] = 1
+    preparation_version: Literal[1] = 1
+    max_chunk_size: int = Field(ge=1, le=2000)
     files: list[FileFingerprint]
 
     @model_validator(mode="after")
@@ -52,6 +55,7 @@ def fingerprint(text: str) -> str:
 def build_manifest(
     raw_dir: Path,
     project_root: Path,
+    max_chunk_size: int = 2000,
 ) -> CorpusManifest:
     """Build a file inventory using the corpus ingestion convention."""
     files: list[FileFingerprint] = []
@@ -66,7 +70,10 @@ def build_manifest(
         )
         files.append(file_state)
 
-    return CorpusManifest(files=files)
+    return CorpusManifest(
+        max_chunk_size=max_chunk_size,
+        files=files,
+    )
 
 
 def compare_manifest(
@@ -105,4 +112,36 @@ def compare_manifest(
         added=sorted(added),
         modified=sorted(modified),
         deleted=sorted(deleted),
+    )
+
+
+def save_manifest(
+    manifest: CorpusManifest,
+    target: Path,
+) -> Path:
+    """Save a manifest throught a temporary file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temportary = target.with_name(target.name + ".tmp")
+
+    serialized = manifest.model_dump_json(indent=2)
+    temportary.write_text(serialized, encoding="utf-8")
+    temportary.replace(target)
+
+    return target
+
+
+def load_manifest(target: Path) -> CorpusManifest:
+    """Read and validate a saved corpus manifest."""
+    serialized = target.read_text(encoding="utf-8")
+    return CorpusManifest.model_validate_json(serialized)
+
+
+def requires_full_rebuild(
+    previous: CorpusManifest,
+    current: CorpusManifest,
+) -> bool:
+    """Detect changes that prevent reuse of existing chunks."""
+    return (
+        previous.preparation_version != current.preparation_version
+        or previous.max_chunk_size != current.max_chunk_size
     )

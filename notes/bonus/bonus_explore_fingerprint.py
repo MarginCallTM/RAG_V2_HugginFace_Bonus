@@ -50,7 +50,7 @@ def main() -> None:
     print("\nFile fingerprint:")
     print(file_state.model_dump_json(indent=2))
 
-    manifest = CorpusManifest(files=[file_state])
+    manifest = CorpusManifest(max_chunk_size=2000, files=[file_state])
 
     print("\nCorpus manifest:")
     print(manifest.model_dump_json(indent=2))
@@ -58,7 +58,7 @@ def main() -> None:
     print("\nChecking duplicate path rejection...")
 
     try:
-        CorpusManifest(files=[file_state, file_state])
+        CorpusManifest(max_chunk_size=2000, files=[file_state, file_state])
     except ValidationError as error:
         print("Duplicate rejected:", error)
     else:

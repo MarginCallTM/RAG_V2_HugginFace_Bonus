@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from src.manifest import build_manifest, compare_manifest
+from src.manifest import (
+    build_manifest,
+    compare_manifest,
+    save_manifest,
+    load_manifest,
+    requires_full_rebuild,
+)
 
 
 def main() -> None:
@@ -39,6 +45,36 @@ def main() -> None:
 
     print("\nDetected changes:")
     print(changes.model_dump_json(indent=2))
+
+    target = (
+        project_root
+        / "data/output/experiments/incremental/manifest.json"
+    )
+    saved_path = save_manifest(current_manifest, target)
+
+    print("\nManifest saved:", saved_path)
+    print("File exists:", saved_path.is_file())
+
+    restored = load_manifest(saved_path)
+
+    print("\nManifest reloaded")
+    print("Same manifest:", restored == current_manifest)
+    print("Tracked files:", len(restored.files))
+
+    smaller_chunks_manifest = build_manifest(
+        raw_dir,
+        project_root,
+        max_chunk_size=1000,
+    )
+
+    print(
+        "\nSame configuration requires rebuild:",
+        requires_full_rebuild(restored, current_manifest),
+    )
+    print(
+        "Changed chunk size requires rebuild:",
+        requires_full_rebuild(restored, smaller_chunks_manifest),
+    )
 
 
 if __name__ == "__main__":
