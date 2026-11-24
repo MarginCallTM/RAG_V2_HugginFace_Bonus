@@ -1,5 +1,61 @@
 # Plan des bonus — RAG against the machine
 
+## Point de reprise prioritaire — 24 novembre 2026, MacBook
+
+Cette section prévaut sur les anciennes indications de prochaine étape.
+Le bonus 3 a commencé : inventaire et comparaison en mémoire sont écrits,
+mais aucune mise à jour incrémentale des index n'est encore intégrée.
+
+- [x] Ajouter `src/manifest.py` : `FileFingerprint` (chemin non vide,
+  empreinte SHA-256 hexadécimale), `CorpusManifest` (chemins uniques),
+  `ManifestDiff` (listes `unchanged`, `added`, `modified`, `deleted`).
+- [x] Ajouter `fingerprint()`, `build_manifest()` et `compare_manifest()`.
+  Attention : le nom réel de la fonction est au singulier.
+  La construction réutilise `list_corpus_files()`, `read_text()` et
+  `to_corpus_path()` : fichiers triés, mêmes extensions et conventions de
+  lecture que le chunking, chemins relatifs, fichiers vides inclus.
+- [x] Expérimenter avec `notes/bonus/bonus_explore_fingerprint.py` : même
+  contenu = même empreinte, modification 8000 -> 9000 détectée, rejet d'un
+  chemin en double observé par l'élève.
+- [x] Expérimenter avec `notes/bonus/bonus_explore_manifest.py` : deux
+  fichiers, puis comparaison avant/après modification de `server.txt`.
+  Sortie transmise : `cache.md` inchangé, `server.txt` modifié, listes
+  `added` et `deleted` vides (résultat attendu).
+- [x] Ajouter `notes/bonus/bonus_explore_full_manifest.py` : construction sur
+  `data/raw/vllm-0.10.1`, durée et aperçu. Exécution fonctionnelle rapportée
+  par l'élève ; nombre de fichiers et durée non transmis. Le script affiche
+  actuellement dix entrées malgré son libellé « First three entries ».
+
+Notions expliquées : empreinte vs embedding, chemin comme identité, contenu
+modifié même à taille identique, `Path / nom`, `write_text()`, compréhension
+de dictionnaire, comparaison de deux états. Les listes vides signifient
+qu'aucun fichier n'appartient à cette catégorie entre les deux inventaires.
+
+**Point d'arrêt exact :** modification et absence de changement observées sur
+le petit corpus. Prochain incrément : expérimenter ajout et suppression entre
+deux inventaires ; rendre les exécutions répétables sans toucher au vrai corpus.
+Ensuite écrire les tests pytest persistants (dont doublons, renommage,
+fichier vide, absence de changement et erreurs de lecture).
+
+Le manifeste existe uniquement en mémoire ; `model_dump_json()` l'affiche.
+Aucune sauvegarde/lecture JSON, version de format ou configuration de chunking
+n'est encore ajoutée. Le chemin expérimental proposé est
+`data/output/experiments/incremental/manifest.json` ;
+`data/processed/manifest.json` reste une proposition à coordonner avec la
+publication cohérente des index, pas un contrat définitif.
+Ne pas publier un nouveau manifeste avant la réussite de la mise à jour.
+
+Suite : versions/configuration et persistance, réutilisation des chunks par
+fichier, réutilisation des vecteurs avec remappage des `chunk_position`,
+statistiques globales BM25, publication cohérente, CLI et benchmarks.
+La première version traitera un renommage comme suppression + ajout.
+Le corpus reste lu pour calculer les empreintes ; le gain visé est d'éviter
+le découpage et l'encodage des fichiers inchangés.
+Pas de lint ni de suite pytest exécutés pour ces nouveaux fichiers dans cette
+séance ; les 285 tests historiques ne valident pas encore le bonus 3.
+Tutorat : théorie avant code, petits blocs recopiés par l'élève ; pas de
+modification de code, commit ou push par l'assistant sans demande explicite.
+
 ## Reprise prioritaire sur Lenovo Ubuntu — 23 novembre 2026
 
 **Lire cette section en premier : elle remplace les anciennes indications de
@@ -105,9 +161,10 @@ Artefacts ignorés par Git :
 - Les logs `.evaluation.txt` sont à côté des JSON ; les candidats par méthode
   sont conservés sous `weight_sweep_c0/candidates/`.
 
-**Prochain incrément sur MacBook :** commencer le bonus 3 avec
-[bonus3_architecture.md](bonus3_architecture.md) : manifeste des fichiers et
-détection des changements avant toute réindexation incrémentale. Le petit
+**Prochain incrément sur MacBook :** poursuivre le bonus 3 (voir le point de
+reprise du 24 novembre en tête) : vérifier ajout/suppression avant toute
+réindexation incrémentale. Architecture :
+[bonus3_architecture.md](bonus3_architecture.md). Le petit
 batch Qwen CPU hybride est effectué ; les tests persistants des poids et du
 chargement de méthode restent à compléter. La comparaison exhaustive des succès
 par question a été reportée au choix de l'élève, elle n'est pas un préalable
@@ -697,9 +754,9 @@ hybride CPU, avec des résultats dédupliqués et évalués.
 reconstruire systématiquement tout l'index.
 
 **Architecture et reprise sur MacBook :** voir
-[bonus3_architecture.md](bonus3_architecture.md). Le bonus 3 n'est pas encore
-implémenté. Premier incrément prévu : manifeste SHA-256 et classification des
-fichiers, sans modifier les index. Le document distingue exigences du sujet,
+[bonus3_architecture.md](bonus3_architecture.md). Le manifeste SHA-256 et la
+classification des fichiers sont écrits en mémoire ; l'intégration de la
+réindexation reste à faire. Le document distingue exigences du sujet,
 choix proposés, étapes d'intégration et critères de validation.
 
 Le smoke test hybride de trois questions sur CPU est maintenant effectué et
@@ -707,10 +764,12 @@ son JSON vérifié : intégration fonctionnelle, réponses LoRA/embed correctes,
 commande lm_eval incomplète et citations absentes. Tests ciblés des poids et
 du chargeur hybride encore à compléter ; ne pas prétendre cette couverture acquise.
 
-- [ ] Définir un manifeste par fichier : chemin, empreinte du contenu et version
-      de configuration du chunking ; utiliser les dates comme optimisation
-      éventuelle, pas comme seule garantie de détection.
-- [ ] Comparer manifeste et corpus pour détecter ajouts, modifications et suppressions.
+- [x] Définir l'inventaire par fichier : chemin et empreinte du contenu.
+- [x] Écrire la comparaison des chemins/empreintes pour classer les changements.
+- [ ] Ajouter version de format et configuration du chunking au manifeste ;
+      les dates seules ne garantissent pas la détection des changements.
+- [ ] Valider les catégories ajout/suppression par expérience et couvrir la
+      comparaison par des tests persistants.
 - [ ] Conserver les chunks inchangés ; remplacer tous les anciens chunks d'un
       fichier modifié, car une insertion peut décaler ses offsets.
 - [ ] Retirer les chunks et vecteurs des fichiers supprimés.
@@ -805,6 +864,7 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochaine séance : reprendre sur MacBook avec `bonus3_architecture.md`,
-commencer le manifeste et la détection des changements. Le smoke test Qwen
+Prochaine étape : reprendre le point du 24 novembre en tête de ce fichier,
+tester ajout/suppression puis préparer les tests et la persistance du manifeste.
+Architecture de référence : `bonus3_architecture.md`. Le smoke test Qwen
 hybride CPU est effectué ; les tests ciblés restants sont conservés dans le suivi.
