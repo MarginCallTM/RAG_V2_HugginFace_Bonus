@@ -1,6 +1,104 @@
 # Plan des bonus — RAG against the machine
 
-## Point de reprise prioritaire — 24 novembre 2026, MacBook
+## Point de reprise prioritaire — 25 novembre 2026, MacBook
+
+**Cette section prévaut sur l'historique et sur les anciennes prochaines étapes.**
+Mandatory et bonus 1/2 implémentés, évaluations historiques ci-dessous ;
+validation finale à rejouer sur Lenovo CPU. Bonus 3 partiellement implémenté,
+bonus 4/5 non implémentés. Aucun commit/push effectué par l'assistant.
+
+### Acquis et validations
+
+- [x] `src/manifest.py` : empreintes du texte normalisé, inventaire et
+  classification en quatre catégories, chemins relatifs uniques.
+- [x] `CorpusManifest` : format/preparation_version=1 (Literal), taille des
+  chunks obligatoire (1..2000) ; sauvegarde JSON via fichier temporaire puis
+  remplacement ; chargement validé. `requires_full_rebuild()` compare règles
+  de préparation/taille ; versions inconnues refusées, aucune migration.
+- [x] Expériences ajout/suppression répétables ; sauvegarde/restauration sous
+  `data/output/experiments/incremental/manifest.json`, modèles identiques.
+- [x] `src/incremental.py` : `rebuild_file_chunks()` vérifie que le texte relu
+  correspond à l'empreinte puis découpe exactement cette chaîne.
+- [x] `update_chunk_index()` reprend les chunks inchangés, reconstruit ceux
+  des fichiers ajoutés/modifiés, omet les supprimés, reconstruit tout si taille
+  incompatible ; ordre déterministe et refus d'un corpus sans texte indexable.
+  Suppose ancien index/manifeste issus de la même génération réussie.
+- [x] `map_reusable_chunks()` : correspondance ancienne -> nouvelle position
+  par chemin/bornes et vérification du contenu, pour les chemins réutilisables
+  fournis par l'appelant ; compatibilité du découpage à vérifier par l'appelant.
+- [x] `src/semantic_incremental.py` : `remap_reusable_segments()` renvoie les
+  segments avec nouvelles références et les anciennes lignes de vecteurs
+  dans le même ordre. Aucun chargement de MiniLM dans cette fonction.
+- [x] Expériences `bonus_explore_incremental_chunks.py`,
+  `bonus_explore_chunk_update.py`, `bonus_explore_vector_remapping.py` :
+  empreinte périmée refusée, égalité avec reconstruction complète, positions
+  déplacées, plusieurs segments par chunk et valeurs des vecteurs conservées.
+- [x] **37 tests ciblés exécutés le 25 novembre : 30 manifest + 7 incremental,
+  tous réussis en 0,13 s.** Observation du vrai découpage avec
+  `patch(..., wraps=chunk_file)` : seuls ajout/modification redécoupés ;
+  aucun découpage sans changement ; tous si configuration différente ;
+  renommage, fichier vide, corpus vidé et modification après scan couverts.
+
+Dernier `make lint` réussi avant les derniers ajouts : flake8/mypy sur 88
+fichiers. Relancer après les ajouts de correspondance/remappage et avant le
+commit. Aucune suite complète relancée ici ; les 285 tests sont historiques.
+
+### Point d'arrêt exact et ordre de reprise
+
+Remappage de plusieurs segments observé : anciennes lignes [2, 3, 4],
+nouvelles références chunks 0/0/1 ; valeurs conservées. Le rappel de
+`batch_size` vient d'être fait : nombre de segments traités ensemble,
+distinct du budget de tokens de chaque segment.
+
+**Prochain incrément : compatibilité sémantique avant réutilisation.**
+Comparer modèle, révision, max_tokens, segmentation, pooling, normalisation,
+versions et dimension pertinentes ; ne pas invalider pour batch_size seul
+ni pour les poids RRF. Puis :
+
+1. Tests persistants pour `map_reusable_chunks()` et
+   `remap_reusable_segments()` (plusieurs segments, déplacements, exclusions).
+2. Segmenter/encoder uniquement les chunks à reconstruire ; remapper leurs
+   positions locales vers celles de l'index global.
+3. Assembler segments anciens/nouveaux et vecteurs alignés, actualiser les
+   métadonnées et appeler `validate_embeddings()`.
+4. Tester équivalence et appels MiniLM évités avec encodeur simulé, puis
+   petite expérience CPU réelle ; aucune mise à jour sémantique complète
+   intégrée pour l'instant.
+5. Publier ensemble manifeste/chunks/vecteurs après succès seulement ; erreur
+   = ancien état conservé. La provenance cohérente des anciens artefacts doit
+   être garantie, pas seulement supposée par comparaison des tailles.
+6. Ajouter CLI incrémentale/reconstruction complète, premier lancement sans
+   manifeste, chargement lexical/sémantique/hybride cohérent et benchmark CPU.
+
+Le scan lit toujours les fichiers pour les empreintes ; le gain vise chunking
+et MiniLM évités. Les statistiques globales BM25 peuvent être reconstruites.
+La persistance d'un manifeste seul ne réalise pas la publication multi-index.
+
+### Travail restant pour terminer le projet et les cinq bonus
+
+- Bonus 1/2 : compléter couverture persistante des poids et du chargeur
+  hybride, mesures/démonstrations CPU. BM25 reste le défaut ; hybride retenu
+  65/35, C=0, candidats=20 : docs 83 %, code 64,65 %. Build sémantique mesuré
+  à 306,22 s : ne pas prétendre avoir validé un budget de 300 s.
+- Bonus 3 : terminer la chaîne ci-dessus, réutilisation réelle de vecteurs,
+  publication cohérente et CLI ; pas encore démontrable de bout en bout.
+- Bonus 4 : cache des structures d'index pour le démarrage ET cache borné
+  des recherches, clés liées à génération/configuration, invalidation,
+  tests hit/miss/corruption et mesures. Les JSON/.pt actuels ne suffisent pas.
+- Bonus 5 : API HTTP locale de recherche et génération, réutilisant les
+  services existants, validation/erreurs, chargements maîtrisés, CPU,
+  tests des routes puis requêtes réelles. Aucune API encore implémentée.
+- Final : installation propre sur Lenovo, lint et suite complets,
+  moulinette mandatory et performances, démonstration CPU des cinq bonus,
+  génération/provenance des réponses, README anglais et commandes à jour,
+  contrôle des fichiers ignorés et préparation de soutenance. Le smoke test
+  Qwen de trois questions (lm_eval incomplet, citations absentes) reste une
+  validation limitée, pas une mesure globale de qualité des réponses.
+
+Tutorat : théorie avant code, petits blocs recopiés ; modifications de code
+par l'assistant sur demande explicite. Commit et push effectués par l'élève.
+
+## Historique de reprise — 24 novembre 2026, MacBook
 
 Cette section prévaut sur les anciennes indications de prochaine étape.
 Le bonus 3 a commencé : inventaire et comparaison en mémoire sont écrits,
@@ -754,9 +852,10 @@ hybride CPU, avec des résultats dédupliqués et évalués.
 reconstruire systématiquement tout l'index.
 
 **Architecture et reprise sur MacBook :** voir
-[bonus3_architecture.md](bonus3_architecture.md). Le manifeste SHA-256 et la
-classification des fichiers sont écrits en mémoire ; l'intégration de la
-réindexation reste à faire. Le document distingue exigences du sujet,
+[bonus3_architecture.md](bonus3_architecture.md). Le manifeste est persistant
+et la mise à jour des chunks est testée ; réutilisation des vecteurs,
+publication cohérente et CLI restent à intégrer. Voir le point du 25 novembre.
+Le document distingue exigences du sujet,
 choix proposés, étapes d'intégration et critères de validation.
 
 Le smoke test hybride de trois questions sur CPU est maintenant effectué et
@@ -766,16 +865,16 @@ du chargeur hybride encore à compléter ; ne pas prétendre cette couverture ac
 
 - [x] Définir l'inventaire par fichier : chemin et empreinte du contenu.
 - [x] Écrire la comparaison des chemins/empreintes pour classer les changements.
-- [ ] Ajouter version de format et configuration du chunking au manifeste ;
+- [x] Ajouter version de format et configuration du chunking au manifeste ;
       les dates seules ne garantissent pas la détection des changements.
-- [ ] Valider les catégories ajout/suppression par expérience et couvrir la
+- [x] Valider les catégories ajout/suppression par expérience et couvrir la
       comparaison par des tests persistants.
-- [ ] Conserver les chunks inchangés ; remplacer tous les anciens chunks d'un
+- [x] Conserver les chunks inchangés ; remplacer tous les anciens chunks d'un
       fichier modifié, car une insertion peut décaler ses offsets.
 - [ ] Retirer les chunks et vecteurs des fichiers supprimés.
 - [ ] Réencoder seulement les passages nécessitant de nouveaux embeddings et
       maintenir l'alignement entre vecteurs et chunks.
-- [ ] Définir le traitement des renommages (suppression + ajout suffit au départ).
+- [x] Définir le traitement des renommages (suppression + ajout, testé).
 - [ ] Déclencher une reconstruction compatible quand modèle ou chunking change.
 - [ ] Exposer une option incrémentale et une option de reconstruction complète.
 - [ ] Sauvegarder index, manifeste et vecteurs de manière cohérente ; ne pas
@@ -784,7 +883,8 @@ du chargeur hybride encore à compléter ; ne pas prétendre cette couverture ac
       même si seuls les fichiers modifiés sont relus et redécoupés.
 - [ ] Tester ajout, modification, suppression, renommage, exécution sans changement,
       changement de configuration et échec de lecture.
-- [ ] Comparer l'index incrémental à une reconstruction complète du même corpus.
+- [x] Comparer l'index de chunks incrémental à une reconstruction complète.
+- [ ] Comparer aussi l'index sémantique incrémental à une reconstruction complète.
 - [ ] Mesurer le temps pour un seul fichier modifié et vérifier que les fichiers
       inchangés ne sont ni redécoupés ni réencodés.
 
@@ -864,7 +964,7 @@ composants que la CLI et fonctionne sans GPU.
 - [ ] Contrôler Git : aucun poids, vecteur, index, cache, corpus ou résultat généré.
 - [ ] Préparer une explication et une démonstration courte pour chaque bonus.
 
-Prochaine étape : reprendre le point du 24 novembre en tête de ce fichier,
-tester ajout/suppression puis préparer les tests et la persistance du manifeste.
+Prochaine étape : reprendre le point du 25 novembre en tête de ce fichier,
+définir la compatibilité sémantique et tester correspondances/remappage.
 Architecture de référence : `bonus3_architecture.md`. Le smoke test Qwen
 hybride CPU est effectué ; les tests ciblés restants sont conservés dans le suivi.

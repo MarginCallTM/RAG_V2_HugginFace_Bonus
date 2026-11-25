@@ -4,7 +4,6 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.ingest import read_text
-from src.manifest import FileFingerprint, CorpusManifest
 from src.manifest import (
     CorpusManifest,
     FileFingerprint,
