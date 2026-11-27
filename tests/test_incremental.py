@@ -6,9 +6,14 @@ from unittest.mock import patch
 import pytest
 
 from src.chunking import chunk_file
-from src.incremental import rebuild_file_chunks, update_chunk_index
+from src.incremental import (
+    map_reusable_chunks,
+    rebuild_file_chunks,
+    update_chunk_index,
+)
 from src.indexer import build_index
 from src.manifest import build_manifest
+from src.models import Chunk, ChunkIndex
 
 
 def test_update_rebuilds_only_added_and_modified_files(
@@ -143,4 +148,58 @@ def test_update_rejects_removing_all_indexable_text(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="no indexable text"):
         update_chunk_index(
             previous_index, previous_manifest, current_manifest, tmp_path,
+        )
+
+
+def test_map_reusable_chunks_after_deletion() -> None:
+    """Find retained chunks at their new positions."""
+    chunks = [
+        Chunk(
+            file_path=name,
+            first_character_index=0,
+            last_character_index=5,
+            text="Hello",
+        )
+        for name in ("a.txt", "b.txt", "c.txt")
+    ]
+
+    previous_index = ChunkIndex(max_chunk_size=2000, chunks=chunks)
+    current_index = ChunkIndex(max_chunk_size=2000, chunks=chunks[1:])
+
+    mapping = map_reusable_chunks(
+        previous_index,
+        current_index,
+        reusable_paths={"b.txt", "c.txt"},
+    )
+
+    assert mapping == {1: 0, 2: 1}
+
+
+def test_map_reusable_chunks_rejects_changed_content() -> None:
+    """Reject changed text even when path and bounds match."""
+    previous_chunk = Chunk(
+        file_path="server.txt",
+        first_character_index=0,
+        last_character_index=5,
+        text="Hello",
+    )
+    current_chunk = Chunk(
+        file_path="server.txt",
+        first_character_index=0,
+        last_character_index=5,
+        text="World",
+    )
+
+    previous_index = ChunkIndex(
+        max_chunk_size=2000, chunks=[previous_chunk],
+    )
+    current_index = ChunkIndex(
+        max_chunk_size=2000, chunks=[current_chunk],
+    )
+
+    with pytest.raises(ValueError, match="content has changed"):
+        map_reusable_chunks(
+            previous_index,
+            current_index,
+            reusable_paths={"server.txt"},
         )

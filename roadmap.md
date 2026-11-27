@@ -1,82 +1,37 @@
 # Roadmap — RAG Against the Machine
 
-## Priorité de rendu — 25 novembre 2026, reprise sur Lenovo 42
+## Priorité actuelle — reprise du bonus 3, 25 novembre 2026
 
-**Décision explicite de l'élève : préparer le rendu aujourd'hui avec le
-mandatory et uniquement les bonus 1 (sémantique) et 2 (hybride).** Cette
-section remplace les anciennes prochaines missions et objectifs de cinq bonus.
-Ne pas poursuivre l'incrémental, le cache ou l'API HTTP avant le rendu.
-L'objectif personnel d'avril 2027 ci-dessous est historique : il ne justifie
-pas de retarder cette livraison. Détails de reprise : `bonus_rag.md`, section
-« Rendu retenu et reprise sur Lenovo » en tête de fichier.
+**Décision actualisée de l'élève : poursuivre RAG et l'ensemble des cinq bonus,
+sans rendu précipité. La limitation aux bonus 1/2 est annulée.** Cette section
+remplace les consignes précédentes de rendu aujourd'hui.
 
-### État à transférer et périmètre
+- Mandatory et bonus sémantique/hybride conservés ; BM25 reste le défaut.
+- Reprendre le bonus 3 : chunking incrémental fonctionnel, correspondances
+  de chunks et remappage des segments écrits ; réutilisation complète des
+  embeddings, publication cohérente et CLI encore à terminer.
+- Prochaine notion : compatibilité de l'encodeur avant réutilisation
+  (modèle/révision/tokens/pooling/normalisation/segmentation ; pas batch_size).
+- Ensuite : tests des correspondances et segments, encodage des seuls chunks
+  reconstruits, assemblage/validation des vecteurs, publication et CLI,
+  comparaison avec reconstruction complète puis benchmark CPU.
+- Bonus 4 (cache) et bonus 5 (API locale) restent prévus pour la suite.
+- À la demande de l'élève, la tentative bonus 5 a été supprimée :
+  `src/api.py`, `src/api_service.py`, `tests/test_api.py`.
+  Aucune dépendance HTTP n'avait été ajoutée ; reprendre ce bonus proprement
+  ultérieurement, sans considérer ces fichiers comme une implémentation validée.
+- Point d'arrêt détaillé et bilans observés : section « Reprise active » de
+  `bonus_rag.md`. Les anciens bilans restent historiques, pas des contrôles
+  finaux Lenovo.
 
-- Mandatory : implémenté ; refaire les contrôles finaux sur la machine cible.
-- Bonus 1/2 : implémentés et évalués sur CPU ; BM25 reste le défaut.
-  Hybride : candidats=20, C=0, poids BM25/MiniLM=0,65/0,35.
-- Bonus 3 : code partiel déjà commité (`manifest`, `incremental`,
-  `semantic_incremental`, expériences/tests), pas intégré à la CLI et pas
-  revendiqué pour le rendu. Aucun besoin de le terminer.
-- Bonus 4 : non implémenté, exclu du rendu.
-- Bonus 5 : tentative interrompue ; `src/api.py`, `src/api_service.py` et
-  `tests/test_api.py` sont actuellement NON SUIVIS par Git. Ne pas les ajouter
-  automatiquement au commit final. Leurs tests HTTP ont rencontré une
-  interdiction de ports locaux dans le sandbox ; pas de validation obtenue.
-  Conserver/archiver ces brouillons si souhaité, sans les présenter comme un
-  bonus terminé. Leur présence locale influence pytest/lint même non suivis.
-- Aucune suppression, aucun commit/push ni archivage effectués par l'assistant
-  dans cette mise à jour documentaire. Contrôler le diff avant transfert.
+Méthode : théorie avant code et petits incréments, expériences analysées,
+édition par l'élève par défaut pour bonus 3 sauf demande explicite.
+Ne pas effectuer commit/push à sa place. Les contrôles de fin de projet
+restent nécessaires : installation propre Lenovo, lint et suite complets,
+recall/temps obligatoires, démonstrations CPU des bonus, génération et
+sources, README anglais, absence de gros artefacts dans Git.
 
-### Ordre de travail sur Lenovo avant le push final
-
-1. Vérifier `git status`, branche/commit et fichiers effectivement transférés.
-   Les fichiers non suivis ne voyagent pas par Git ; ne pas copier `.venv` Mac.
-   Corpus, datasets, moulinette, poids et index générés sont hors Git : vérifier
-   leur présence et leur version sur Lenovo avant les mesures.
-2. Installer avec `uv sync` sous Python 3.12. Lire le sujet et le README actuel,
-   pas les anciens jalons pédagogiques comme un état réel du code.
-3. Traiter explicitement les brouillons API avant la validation finale locale
-   (conservation hors des chemins actifs ou exclusion du transfert) ; ne pas
-   masquer des erreurs de code soumis. Revoir le README anglais pour ne
-   revendiquer que mandatory + bonus 1/2 et signaler les travaux expérimentaux.
-4. Exécuter `make lint` et `uv run python -m pytest -q` sur l'arbre exact à rendre.
-   Compléter si nécessaire les tests persistants des poids RRF et du chargement
-   hybride. Les résultats historiques ne remplacent pas cette exécution.
-5. Reconstruire les chunks à 2000 caractères, puis l'index MiniLM sur ces mêmes
-   chunks. Éviter de mélanger deux états de corpus ; le loader hybride exige
-   des chunks identiques. MiniLM doit rester sur CPU.
-6. Rejouer BM25 sur docs et code, moulinette officielle, k=5, sources <=2000
-   caractères : docs >=80 %, code >=50 %. Mesurer indexation mandatory <=300 s
-   et retrieval de 200 questions <=90 s, chargement compris.
-7. Rejouer sémantique puis hybride sur les mêmes datasets, dans des dossiers
-   distincts ; mesurer temps/mémoire et conserver la provenance des mesures.
-   Ne pas retuner indéfiniment : vérifier le réglage retenu et les contrats.
-8. Vérifier une génération réelle Qwen et `answer_dataset` avec sources
-   valides et budget respecté ; tester les erreurs CLI sans traceback.
-   Démonstration campus CPU pour les bonus ; la moulinette de retrieval ne
-   valide pas à elle seule la qualité des réponses.
-9. Vérifier README anglais, commandes reproductibles, absence de gros
-   fichiers/poids/index/caches dans Git et diff final. L'élève effectue ensuite
-   le commit/push et contrôle le dépôt distant.
-
-### Mesures de référence, non nouvelles validations
-
-| Méthode | Recall@5 docs | Recall@5 code |
-|---|---:|---:|
-| BM25 | 81,00 % | 66,67 % |
-| MiniLM seul | 66,00 % | 41,41 % |
-| Hybride retenu | 83,00 % | 64,65 % |
-
-Le sémantique seul ne satisfait pas les seuils mandatory : conserver la
-baseline BM25. L'hybride améliore docs mais baisse code face à BM25.
-Build sémantique historique : 306,22 s CPU, distinct de l'indexation mandatory
-BM25 mesurée à 10,10 s ; ne pas annoncer que 306,22 s respecte 300 s.
-Derniers contrôles observés avant la tentative API : 37 tests manifest/chunks
-incrémentaux réussis ; ancien lint sur 88 fichiers avant ajouts ultérieurs.
-La suite globale de 285 tests date d'avant l'incrémental. Refaire les contrôles.
-
-## Historique pédagogique — à lire après le plan de rendu ci-dessus
+## Historique pédagogique — à lire après la priorité actuelle
 
 Document de travail pédagogique pour reconstruire RAG_v2 depuis zéro, en conservant la logique générale de RAG_v1. Référence : `subject.pdf`, version 2.0. Les numéros de sections ci-dessous renvoient au sujet.
 

@@ -1,94 +1,62 @@
 # Plan des bonus — RAG against the machine
 
-## Rendu retenu et reprise sur Lenovo — 25 novembre 2026
+## Reprise active — bonus 3, 25 novembre 2026
 
-**Décision de l'élève : rendre aujourd'hui, après derniers tests sur Lenovo
-42, en conservant uniquement les bonus 1 (sémantique) et 2 (hybride).**
-Cette section prévaut sur TOUTES les anciennes prochaines étapes ci-dessous,
-sur la roadmap historique et sur `bonus3_architecture.md`. Pas de reprise
-de développement des bonus 3, 4 ou 5 avant ce rendu. Plan de validation
-général détaillé en tête de `roadmap.md` (le fichier existant s'appelle ainsi,
-pas `roadma.md`). L'élève effectue le commit/push après validation.
+**Dernière décision de l'élève : poursuivre le projet et les cinq bonus, sans
+rendu précipité. La décision de ne rendre que les bonus 1/2 est annulée.**
+Cette section prévaut sur les anciennes consignes de rendu et de prochaines
+étapes. Le bonus 3 reprend au point d'arrêt technique décrit ci-dessous.
 
-### État exact et travaux exclus
+### Nettoyage de la tentative HTTP
 
-- **Retenus :** mandatory BM25/Qwen, index sémantique CPU MiniLM et fusion
-  hybride pondérée. CLI `index_semantic`, `search` et `search_dataset` avec
-  `--method bm25|semantic|hybrid` déjà intégrées. `answer` reste BM25 ;
-  `answer_dataset` peut consommer les sources enregistrées des autres méthodes.
-- **Bonus 3 différé :** manifeste persistant et mise à jour des chunks testés,
-  correspondances/remappage sémantiques partiels dans `src/` ; aucune mise à
-  jour sémantique incrémentale complète/CLI/publication coordonnée.
-  Ces fichiers sont déjà commités, ne pas les confondre avec un bonus validé.
-- **Bonus 4 exclu :** aucun cache complet index + résultats de recherche.
-- **Bonus 5 abandonné pour ce rendu :** tentative de serveur bibliothèque
-  standard dans `src/api.py`, `src/api_service.py`, `tests/test_api.py`.
-  Ces trois fichiers sont NON SUIVIS au moment de la reprise. Aucun ajout de
-  dépendance/lockfile. Les premiers tests HTTP ont été bloqués par le sandbox
-  (interdiction de bind local) ; la tentative de relance autorisée a été
-  interrompue. Aucun bilan de tests HTTP réussi ni démonstration réelle Qwen
-  via HTTP. Ne pas présenter l'API comme terminée.
-- Les brouillons non suivis ne seront pas récupérés par un pull sur Lenovo,
-  mais pytest/lint les voient sur Mac. Avant le rendu, décider de leur
-  conservation hors des chemins actifs ou de leur non-transfert. Ne pas faire
-  `git add .` sans revue. Aucune suppression/archivage effectué ici.
+À la demande explicite de l'élève, les trois fichiers de la tentative API ont
+été supprimés : `src/api.py`, `src/api_service.py`, `tests/test_api.py`.
+Aucune dépendance HTTP ni modification de `pyproject.toml`/`uv.lock` n'avait
+été ajoutée. Le bonus 5 sera repris proprement plus tard ; ne pas restaurer
+ces brouillons comme point de départ obligatoire. Le cache (bonus 4) reste
+également à réaliser. Aucun commit/push effectué par l'assistant.
 
-### Contrôles finaux prioritaires
+### État conservé
 
-- [ ] Vérifier branche/commit et installation Lenovo `uv sync`, sans copier
-      `.venv` Mac ; vérifier corpus/datasets/moulinette et espace pour les modèles.
-- [ ] `make lint` puis `uv run python -m pytest -q` sur le périmètre exact rendu.
-      Compléter les tests persistants manquants des poids et du chargeur hybride.
-- [ ] Reconstruire chunks puis vecteurs depuis le même corpus ; MiniLM CPU,
-      modèle/révision/max_tokens inchangés. Vérifier chargement et provenance.
-- [ ] BM25 docs et code : k=5, limites sources=2000 caractères, moulinette
-      docs seuil 0,80 et code 0,50 ; mesurer indexation <=300 s et retrieval
-      de 200 questions <=90 s avec chargement et initialisation.
-- [ ] Rejouer les deux méthodes bonus dans des dossiers séparés ; confirmer
-      recall et durées sur Lenovo, sans utiliser d'anciennes sorties par erreur.
-- [ ] Génération réelle Qwen, JSON et sources exactes, budget de contexte,
-      erreurs CLI ; smoke test CPU avec sources hybrides via `answer_dataset`.
-- [ ] README anglais : périmètre revendiqué 1/2 seulement, commandes,
-      architecture, contraintes/mesures réelles. Aucun gros artefact dans Git.
-- [ ] Revue du diff puis commit/push par l'élève ; vérifier le dépôt distant.
+- Mandatory, bonus 1 (MiniLM CPU) et bonus 2 (hybride) implémentés ; mesures
+  historiques et contrôles finaux Lenovo restent à distinguer.
+- Bonus 3 : manifeste versionné et persistant, détection des changements,
+  mise à jour des chunks et correspondance ancienne/nouvelle position.
+- `src/semantic_incremental.py` contient `remap_reusable_segments()` :
+  segments remappés et anciennes lignes du tenseur à conserver, synchronisés.
+- Expérience à plusieurs segments réussie : anciennes lignes [2, 3, 4],
+  nouvelles références chunks 0/0/1, valeurs conservées, aucun MiniLM chargé.
+- Dernier point pédagogique : `batch_size` = nombre de segments traités
+  ensemble ; il ne change pas le modèle ni les tokens de chaque segment et
+  ne doit pas invalider les embeddings déjà calculés.
 
-Commandes de départ depuis la racine, à adapter uniquement si chemins différents :
+### Prochain incrément, théorie avant code
 
-```bash
-uv sync
-make lint
-uv run python -m pytest -q
-uv run python -m src index --max_chunk_size 2000
-uv run python -m src index_semantic --batch_size 32
-```
+**Vérifier la compatibilité sémantique avant réutilisation des vecteurs.**
+Comparer modèle, révision, budget de tokens, segmentation, pooling,
+normalisation et versions/dimension pertinentes. Exclure `batch_size` et
+poids RRF des raisons de reconstruction sémantique.
 
-Pour chaque méthode `bm25`, `semantic`, `hybrid`, et chaque dataset docs/code :
+Puis avancer par petits incréments :
 
-```bash
-uv run python -m src search_dataset \
-  --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json \
-  --method hybrid --k 5 \
-  --save_directory data/output/final/hybrid/UnansweredQuestions
+1. Tests persistants des correspondances de chunks et du remappage de
+   plusieurs segments ; démontrer que les anciennes valeurs sont conservées.
+2. Segmenter/encoder uniquement les chunks nouveaux ou reconstruits, remapper
+   leurs positions locales vers celles de l'index global.
+3. Assembler segments/vecteurs conservés et nouveaux dans le même ordre ;
+   actualiser les métadonnées et valider avec `validate_embeddings()`.
+4. Vérifier équivalence avec reconstruction complète et appels d'encodage
+   évités, avec encodeur simulé puis petite expérience CPU réelle.
+5. Publier ensemble manifeste/chunks/vecteurs après succès uniquement ;
+   gérer erreurs et provenance cohérente des anciens artefacts.
+6. Brancher CLI incrémentale/reconstruction complète, statistiques BM25 et
+   loaders cohérents, mesurer sur CPU puis poursuivre bonus 4 et bonus 5.
 
-./moulinette evaluate_student_search_results \
-  data/output/final/hybrid/UnansweredQuestions/dataset_docs_public.json \
-  data/datasets/AnsweredQuestions/dataset_docs_public.json \
-  --k 5 --max_context_length 2000 --threshold 0.80
-```
-
-Changer méthode ET dossier de sortie pour chaque méthode ; pour code,
-remplacer les deux noms de dataset et utiliser `--threshold 0.50`.
-Le seuil de passage ne remplace pas une mesure de qualité de génération.
-
-Références historiques : BM25 docs 81 %, code 66,67 % ; sémantique docs 66 %,
-code 41,41 % ; hybride docs 83 %, code 64,65 %. Réglage retenu : candidats=20,
-C=0, poids lexical=0,65/sémantique=0,35. BM25 reste le défaut ; ne pas prétendre
-que MiniLM seul atteint les seuils ni que l'hybride améliore les deux datasets.
-Build sémantique historique 306,22 s, au-delà de 300 s ; baseline indexation
-mandatory BM25 10,10 s. Documenter les temps séparément, sans garantie anticipée.
-Derniers tests ciblés réussis observés : 37 (30 manifest + 7 incremental) ;
-ancien lint 88 fichiers avant ajouts ultérieurs ; ancienne suite 285 tests.
-Ces résultats ne remplacent pas la validation finale de l'arbre à rendre.
+La permission d'édition donnée pour l'API ne signifie pas que l'élève souhaite
+abandonner le tutorat progressif du bonus 3 : expliquer avant chaque étape,
+laisser recopier le code par défaut, sauf nouvelle demande d'édition.
+La validation finale reste sur Lenovo de 42 ; aucune obligation de rendre
+aujourd'hui ne doit être déduite des anciens documents.
 
 ## Historique de développement — 25 novembre 2026, MacBook
 
